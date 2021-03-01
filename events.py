@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from collections import defaultdict
 
@@ -71,10 +72,30 @@ class Events:
         self.ts_test = len(self.test_events)
         print('\tnum entity: {:d} num relation: {:d}'.format(self.num_entity, self.num_relation))
         print('\tduration train: {:d} vald: {:d} test: {:d}'.format(len(self.train_events), len(self.val_events), len(self.test_events)))
+        self.generate_mask_dict()
+        print('Done loading data.')
+
+    def generate_mask_dict(self):
+        self.object_mask_dict = dict()
+        self.subject_mask_dict = dict()
+        for r in range(self.num_relation):
+            self.object_mask_dict[r] = dict()
+            self.subject_mask_dict[r] = dict()
+            for e in range(self.num_entity):
+                self.object_mask_dict[r][e] = set()
+                self.subject_mask_dict[r][e] = set()
+        for events in self.train_events + self.val_events + self.test_events:
+            for s, r, o, _ in events:
+                self.object_mask_dict[r][s].add(o)
+                self.subject_mask_dict[r][o].add(s)
+        for r in range(self.num_relation):
+            for e in range(self.num_entity):
+                self.object_mask_dict[r][e] = list(self.object_mask_dict[r][e])
+                self.subject_mask_dict[r][e] = list(self.subject_mask_dict[r][e])
 
     def get_hetero_dict(self, ts):
         # get dict of events happens at time ts
-        if ts >= self.ts_val:
+        if ts >= self.ts_train + self.ts_val:
             events = self.test_events[ts - self.ts_train - self.ts_val]
         elif ts >= self.ts_train:
             events = self.val_events[ts - self.ts_train]
@@ -86,5 +107,58 @@ class Events:
             event_dict[('entity', '-r' + str(r), 'entity')].append((o, s))
         return event_dict
 
-
+    def get_batches(self, ts, bs, require_mask=True):
+        # get minibatches of event at time ts with batch size bs
+        if ts >= self.ts_train + self.ts_val:
+            events = self.test_events[ts - self.ts_train - self.ts_val]
+        elif ts >= self.ts_train:
+            events = self.val_events[ts - self.ts_train]
+        else:
+            events = self.train_events[ts]
+        # adjust batchsize to average events in a batch
+        bs = round(len(events) // round(len(events) / bs))
+        subs = list()
+        objs = list()
+        rels = list()
+        masks = list()
+        sub = list()
+        obj = list()
+        rel = list()
+        if require_mask:
+            mask_obj_x = list()
+            mask_obj_y = list()
+            mask_sub_x = list()
+            mask_sub_y = list()
+        for s, r, o, _ in events:
+            if len(sub) > bs:
+                subs.append(torch.tensor(sub).cuda())
+                objs.append(torch.tensor(obj).cuda())
+                rels.append(torch.tensor(rel).cuda())
+                if require_mask:
+                    mask_x = torch.cat([torch.tensor(mask_sub_x), torch.tensor(mask_obj_x) + len(sub)])
+                    mask_y = torch.cat([torch.tensor(mask_sub_y), torch.tensor(mask_obj_y)])
+                    masks.append(torch.stack([mask_x,mask_y]).cuda())
+                    mask_obj_x = list()
+                    mask_obj_y = list()
+                    mask_sub_x = list()
+                    mask_sub_y = list()
+                sub = list()
+                obj = list()
+                rel = list()
+            sub.append(s)
+            obj.append(o)
+            rel.append(r)
+            if require_mask:
+                mask_obj_y += self.object_mask_dict[r][s]
+                mask_obj_x += [len(sub) - 1] * len(self.object_mask_dict[r][s])
+                mask_sub_y += self.subject_mask_dict[r][o]
+                mask_sub_x += [len(sub) - 1] * len(self.subject_mask_dict[r][o])
+        subs.append(torch.tensor(sub).cuda())
+        objs.append(torch.tensor(obj).cuda())
+        rels.append(torch.tensor(rel).cuda())
+        if require_mask:
+            mask_x = torch.cat([torch.tensor(mask_sub_x), torch.tensor(mask_obj_x) + len(sub)])
+            mask_y = torch.cat([torch.tensor(mask_sub_y), torch.tensor(mask_obj_y)])
+            masks.append(torch.stack([mask_x, mask_y]).cuda())
+        return subs, objs, rels, masks
         
