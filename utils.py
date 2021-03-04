@@ -20,3 +20,10 @@ def add_edges_from_dict(g, event_dict):
                 v.append(t[1])
             g.add_edges(u, v, etype=etype)
     return
+
+def extract_emb(ent_emb, history, ts):
+    h = list()
+    for t in history:
+        h.append(ent_emb[ts - t])
+    h = torch.cat(h, dim=1)
+    return h

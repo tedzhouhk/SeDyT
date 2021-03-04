@@ -67,6 +67,13 @@ class PreTrainModel(nn.Module):
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         return sub_predict, obj_predict
+    
+    def get_entity_embedding(self, g):
+        h = self.mods['entity_emb'].weight
+        for l in range(self.deepth):
+            h = self.mods['conv' + str(l)](g, {'entity': h})['entity']
+            h = self.mods['dropout' + str(l)](h)
+        return h
 
     def forward_and_loss(self, sub, obj, rel, g, filter_mask=None):
         sub_pre, obj_pre = self.forward(sub, obj, rel, g)
@@ -84,5 +91,81 @@ class PreTrainModel(nn.Module):
                 rank_fil = get_rank(pre, pre_thres)
         return loss, rank_unf, rank_fil
 
+class AttentionLayer(torch.nn.Module):
+    
+    def __init__(self, in_dim, out_dim, dropout=0, h_att=8):
+        super(AttentionLayer, self).__init__()
+        self.h_att = h_att
+        mods = dict()
+        for h in range(h_att):
+            mods['dropout' + str(h)] = nn.Dropout(p=dropout)
+            mods['w_q_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['w_k_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['w_v_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['softmax' + str(h)] = nn.Softmax(dim=1)
+        self.mods = nn.ModuleDict(mods)
+        
+    def forward(self, hid):
+        out = list()
+        for h in range(self.h_att):
+            hidd = self.mods['dropout' + str(h)](hid)
+            q = self.mods['w_q_' + str(h)](hidd)
+            k = self.mods['w_q_' + str(h)](hidd)
+            v = self.mods['w_q_' + str(h)](hidd)
+            adj = self.mods['softmax' + str(h)](torch.matmul(q, k.T))
+            out.append(torch.matmul(adj, v))
+        out = torch.cat(out, dim=1)
+        return torch.nn.functional.relu(out)
             
 
+class FixStepAttentionModel(torch.nn.Module):
+
+    def __init__(self, in_dim, out_dim, dim_r, nume, sub_rel_emb, obj_rel_emb, dropout=0, h_att=8, num_l=1, lr=0.01):
+        super(FixStepAttentionModel, self).__init__()
+        self.num_l = num_l
+        mods = dict()
+        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=True)
+        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=True)
+        for l in range(num_l):
+            mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
+            in_dim = out_dim
+        mods['object_classifier'] = Perceptron(out_dim + dim_r, nume, act=False)
+        mods['subject_classifier'] = Perceptron(out_dim + dim_r, nume, act=False)
+        self.mods = nn.ModuleDict(mods)
+        self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+
+    def forward(self, hid, sub, obj, rel):
+        for l in range(self.num_l):
+            hid = self.mods['att_' + str(l)](hid)
+        sub_emb = hid[sub]
+        obj_emb = hid[obj]
+        sub_rel_emb = self.mods['subject_relation_emb'](rel)
+        obj_rel_emb = self.mods['object_relation_emb'](rel)
+        sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
+        obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
+        return sub_predict, obj_predict
+
+    def step(self, hid, sub, obj, rel, filter_mask=None, train=True):
+        if train:
+            self.train()
+            self.optimizer.zero_grad()
+        else:
+            self.eval()
+        sub_pre, obj_pre = self.forward(hid, sub, obj, rel)
+        pre = torch.cat([sub_pre, obj_pre])
+        tru = torch.cat([sub, obj])
+        loss = self.loss_fn(pre, tru)
+        if train:
+            loss.backward()
+            self.optimizer.step()
+        with torch.no_grad():
+            pre = pre.clone().detach()
+            tru = tru.clone().detach()
+            pre_thres = pre.gather(1,tru.unsqueeze(1))
+            rank_unf = get_rank(pre, pre_thres)
+            rank_fil = None
+            if filter_mask is not None:
+                pre[filter_mask[0], filter_mask[1]] = float('-inf')
+                rank_fil = get_rank(pre, pre_thres)
+        return loss, rank_unf, rank_fil

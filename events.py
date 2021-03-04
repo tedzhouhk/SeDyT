@@ -116,7 +116,10 @@ class Events:
         else:
             events = self.train_events[ts]
         # adjust batchsize to average events in a batch
-        bs = round(len(events) // round(len(events) / bs))
+        if bs > 0:
+            bs = round(len(events) // round(len(events) / bs))
+        else:
+            bs = len(events)
         subs = list()
         objs = list()
         rels = list()
