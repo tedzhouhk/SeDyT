@@ -124,8 +124,8 @@ class FixStepAttentionModel(torch.nn.Module):
         super(FixStepAttentionModel, self).__init__()
         self.num_l = num_l
         mods = dict()
-        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=True)
-        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=True)
+        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
+        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
         for l in range(num_l):
             mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
             in_dim = out_dim

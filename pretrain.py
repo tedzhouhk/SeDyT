@@ -70,18 +70,23 @@ for e in range(args.epoch):
             pbar.update(1)
         total_rank_unf = list()
         total_rank_fil = list()
-        model.eval()
-        with torch.no_grad():
-            for ts in range(data.ts_train, data.ts_train + data.ts_val):
-                event_dict = data.get_hetero_dict(ts)
-                batches = data.get_batches(ts, args.batch_size)
-                for sub, obj, rel, mask in zip(batches[0], batches[1], batches[2], batches[3]):
-                    loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g, mask)
-                    total_rank_unf.append(rank_unf)
-                    total_rank_fil.append(rank_fil)
-                    print(mrr(total_rank_unf[-1]))
-                add_edges_from_dict(g, event_dict)
-                pbar.update(1)
+        for ts in range(data.ts_train, data.ts_train + data.ts_val):
+            event_dict = data.get_hetero_dict(ts)
+            batches = data.get_batches(ts, args.batch_size)
+            for sub, obj, rel, mask in zip(batches[0], batches[1], batches[2], batches[3]):
+                optimizer.zero_grad()
+                t_s = time.time()
+                loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g, mask)
+                t_forw += time.time() - t_s
+                t_s = time.time()
+                loss.backward()
+                optimizer.step()
+                t_back += time.time() - t_s
+                total_rank_unf.append(rank_unf.detach().clone())
+                total_rank_fil.append(rank_fil.detach().clone())
+                print(mrr(total_rank_fil[-1]))
+            add_edges_from_dict(g, event_dict)
+            pbar.update(1)
     with torch.no_grad():
         total_rank_unf = torch.cat(total_rank_unf)
         total_rank_fil = torch.cat(total_rank_fil)

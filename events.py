@@ -1,4 +1,5 @@
 import torch
+import random
 import numpy as np
 from collections import defaultdict
 
@@ -132,6 +133,7 @@ class Events:
             mask_obj_y = list()
             mask_sub_x = list()
             mask_sub_y = list()
+        random.shuffle(events)
         for s, r, o, _ in events:
             if len(sub) > bs:
                 subs.append(torch.tensor(sub).cuda())

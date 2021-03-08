@@ -5,13 +5,12 @@ parser.add_argument('--fwd', type=int, default=10, help='how many time stamps fo
 parser.add_argument('-e', '--epoch', type=int, default=10, help='number of epochs to train')
 parser.add_argument('--dim', type=int, default=512, help='dimension of hidden features')
 parser.add_argument('--dropout', type=float, help='dropout rate')
-parser.add_argument('--lr', type=float, default=0.001,help='learning rate')
+parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
 parser.add_argument('--gpu', type=int, default=1, help='which gpu to use')
-parser.add_argument('--verbose', default=0, action='store_true', help='whether to prinmt verbose output')
 parser.add_argument('--network_type', default='single', type=str, help='single, multi, or hybird')
 parser.add_argument('--history', type=int, nargs='+', default=[31, 15, 7, 3, 2, 1, 0], help='previous steps to look at')
 parser.add_argument('--attention_head', type=int, default=8, help='number of attention heads')
-parser.add_argument('--layer', type=int, default=1, help='number of layers')
+parser.add_argument('--layer', type=int, default=2, help='number of layers')
 args = parser.parse_args()
 
 import os
@@ -19,6 +18,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
 
 import torch
 import dgl
+import colorama
 import numpy as np
 from events import Events
 from tqdm import tqdm
@@ -63,23 +63,23 @@ if args.network_type == 'single':
                 total_rank_fil = torch.cat(total_rank_fil)
         print('\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
         print('\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
-        # # testing
-        # with tqdm(total=data.ts_test) as pbar:
-        #     with torch.no_grad():
-        #         total_rank_unf = list()
-        #         total_rank_fil = list()
-        #         for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
-        #             hid = extract_emb(ent_emb, args.history, ts - max_step)
-        #             batches = data.get_batches(ts, -1, require_mask=True)
-        #             loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], batches[3][0], train=False)
-        #             total_rank_unf.append(rank_unf)
-        #             total_rank_fil.append(rank_fil)
-        #             pbar.update(1)
-        #         total_rank_unf = torch.cat(total_rank_unf)
-        #         total_rank_fil = torch.cat(total_rank_fil)
-        # print('Test result:')
-        # print('\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
-        # print('\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
+        # testing
+        with tqdm(total=data.ts_test) as pbar:
+            with torch.no_grad():
+                total_rank_unf = list()
+                total_rank_fil = list()
+                for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
+                    hid = extract_emb(ent_emb, args.history, ts - max_step)
+                    batches = data.get_batches(ts, -1, require_mask=True)
+                    loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], batches[3][0], train=False)
+                    total_rank_unf.append(rank_unf)
+                    total_rank_fil.append(rank_fil)
+                    pbar.update(1)
+                total_rank_unf = torch.cat(total_rank_unf)
+                total_rank_fil = torch.cat(total_rank_fil)
+        print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
+        print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
+        print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     # testing
     with tqdm(total=data.ts_test) as pbar:
         with torch.no_grad():
@@ -94,6 +94,6 @@ if args.network_type == 'single':
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
-    print('Test result:')
-    print('\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
-    print('\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
+    print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
+    print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
+    print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
