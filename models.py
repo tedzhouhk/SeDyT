@@ -127,6 +127,7 @@ class FixStepAttentionModel(torch.nn.Module):
         mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
         mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
         for l in range(num_l):
+            mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
             mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
             in_dim = out_dim
         mods['object_classifier'] = Perceptron(out_dim + dim_r, nume, act=False)
@@ -137,6 +138,7 @@ class FixStepAttentionModel(torch.nn.Module):
 
     def forward(self, hid, sub, obj, rel):
         for l in range(self.num_l):
+            hid = self.mods['norm_' + str(l)](hid)
             hid = self.mods['att_' + str(l)](hid)
         sub_emb = hid[sub]
         obj_emb = hid[obj]

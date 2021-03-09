@@ -84,7 +84,7 @@ for e in range(args.epoch):
                 t_back += time.time() - t_s
                 total_rank_unf.append(rank_unf.detach().clone())
                 total_rank_fil.append(rank_fil.detach().clone())
-                print(mrr(total_rank_fil[-1]))
+                # print(mrr(total_rank_fil[-1]))
             add_edges_from_dict(g, event_dict)
             pbar.update(1)
     with torch.no_grad():
