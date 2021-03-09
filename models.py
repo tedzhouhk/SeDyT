@@ -99,24 +99,38 @@ class AttentionLayer(torch.nn.Module):
         mods = dict()
         for h in range(h_att):
             mods['dropout' + str(h)] = nn.Dropout(p=dropout)
-            mods['w_q_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
-            mods['w_k_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
             mods['w_v_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
             mods['softmax' + str(h)] = nn.Softmax(dim=1)
         self.mods = nn.ModuleDict(mods)
         
-    def forward(self, hid):
+    def forward(self, hid, adj):
         out = list()
         for h in range(self.h_att):
             hidd = self.mods['dropout' + str(h)](hid)
-            q = self.mods['w_q_' + str(h)](hidd)
-            k = self.mods['w_q_' + str(h)](hidd)
-            v = self.mods['w_q_' + str(h)](hidd)
-            adj = self.mods['softmax' + str(h)](torch.matmul(q, k.T))
-            out.append(torch.matmul(adj, v))
+            v = self.mods['w_v_' + str(h)](hidd)
+            out.append(torch.matmul(adj[h], v))
         out = torch.cat(out, dim=1)
         return torch.nn.functional.relu(out)
-            
+
+class Attention(torch.nn.Module):
+
+    def __init__(self, in_dim, out_dim, h_att=8):
+        super(Attention, self).__init__()
+        self.h_att = h_att
+        mods = dict()
+        for h in range(h_att):
+            mods['w_q_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['w_k_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['softmax' + str(h)] = nn.Softmax(dim=1)
+        self.mods = nn.ModuleDict(mods)
+    
+    def forward(self, hid):
+        out = list()
+        for h in range(self.h_att):
+            q = self.mods['w_q_' + str(h)](hid)
+            k = self.mods['w_q_' + str(h)](hid)
+            out.append(self.mods['softmax' + str(h)](torch.matmul(q, k.T)))
+        return out
 
 class FixStepAttentionModel(torch.nn.Module):
 
@@ -126,6 +140,7 @@ class FixStepAttentionModel(torch.nn.Module):
         mods = dict()
         mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
         mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
+        mods['attention'] = Attention(in_dim, out_dim, h_att=h_att)
         for l in range(num_l):
             mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
             mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
@@ -137,9 +152,10 @@ class FixStepAttentionModel(torch.nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, hid, sub, obj, rel):
+        adj = self.mods['attention'](self.mods['norm_0'](hid))
         for l in range(self.num_l):
             hid = self.mods['norm_' + str(l)](hid)
-            hid = self.mods['att_' + str(l)](hid)
+            hid = self.mods['att_' + str(l)](hid, adj)
         sub_emb = hid[sub]
         obj_emb = hid[obj]
         sub_rel_emb = self.mods['subject_relation_emb'](rel)

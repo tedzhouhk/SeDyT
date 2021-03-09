@@ -11,6 +11,7 @@ parser.add_argument('--network_type', default='single', type=str, help='single, 
 parser.add_argument('--history', type=int, nargs='+', default=[31, 15, 7, 3, 2, 1, 0], help='previous steps to look at')
 parser.add_argument('--attention_head', type=int, default=8, help='number of attention heads')
 parser.add_argument('--layer', type=int, default=2, help='number of layers')
+parser.add_argument('--store_result', type=str, default='', help='store the result for tuning')
 args = parser.parse_args()
 
 import os
@@ -64,22 +65,22 @@ if args.network_type == 'single':
         print('\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
         print('\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
         # testing
-        with tqdm(total=data.ts_test) as pbar:
-            with torch.no_grad():
-                total_rank_unf = list()
-                total_rank_fil = list()
-                for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
-                    hid = extract_emb(ent_emb, args.history, ts - max_step)
-                    batches = data.get_batches(ts, -1, require_mask=True)
-                    loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], batches[3][0], train=False)
-                    total_rank_unf.append(rank_unf)
-                    total_rank_fil.append(rank_fil)
-                    pbar.update(1)
-                total_rank_unf = torch.cat(total_rank_unf)
-                total_rank_fil = torch.cat(total_rank_fil)
-        print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
-        print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
-        print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
+        # with tqdm(total=data.ts_test) as pbar:
+        #     with torch.no_grad():
+        #         total_rank_unf = list()
+        #         total_rank_fil = list()
+        #         for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
+        #             hid = extract_emb(ent_emb, args.history, ts - max_step)
+        #             batches = data.get_batches(ts, -1, require_mask=True)
+        #             loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], batches[3][0], train=False)
+        #             total_rank_unf.append(rank_unf)
+        #             total_rank_fil.append(rank_fil)
+        #             pbar.update(1)
+        #         total_rank_unf = torch.cat(total_rank_unf)
+        #         total_rank_fil = torch.cat(total_rank_fil)
+        # print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
+        # print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
+        # print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     # testing
     with tqdm(total=data.ts_test) as pbar:
         with torch.no_grad():
@@ -97,3 +98,6 @@ if args.network_type == 'single':
     print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
+    if args.store_result != "":
+        with open(args.store_result, encoding="utf-8", mode="a") as f:
+            f.write('{:.2f}\t{:.5f}\t{:.4f}\n'.format(args.dropout, args.lr, mrr(total_rank_fil)))
