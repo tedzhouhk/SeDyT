@@ -41,6 +41,7 @@ if args.network_type == 'single':
     model = FixStepAttentionModel(dim_in, args.dim, obj_rel_emb.shape[1], ent_emb.shape[1], sub_rel_emb, obj_rel_emb, dropout=args.dropout, h_att=args.attention_head, num_l=args.layer, lr=args.lr).cuda()
 
     for e in range(args.epoch):
+        torch.cuda.empty_cache()
         print('epoch {:d}:'.format(e))
         with tqdm(total=data.ts_train + data.ts_val - args.fwd - max(args.history) - max_step) as pbar:
             # training
@@ -82,6 +83,7 @@ if args.network_type == 'single':
         # print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
         # print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     # testing
+    rank_fil_l = list()
     with tqdm(total=data.ts_test) as pbar:
         with torch.no_grad():
             total_rank_unf = list()
@@ -90,14 +92,16 @@ if args.network_type == 'single':
                 hid = extract_emb(ent_emb, args.history, ts - max_step)
                 batches = data.get_batches(ts, -1, require_mask=True)
                 loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], batches[3][0], train=False)
-                total_rank_unf.append(rank_unf)
-                total_rank_fil.append(rank_fil)
+                total_rank_unf.append(rank_unf.cpu())
+                total_rank_fil.append(rank_fil.cpu())
+                rank_fil_l.append(mrr(total_rank_fil[-1]))
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
     print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
+    # print(colorama.Fore.RED + '\tfiltered MRR at each timestamp: '+ '\t'.join(str(float(fil)) for fil in rank_fil_l) + colorama.Style.RESET_ALL)
     if args.store_result != "":
         with open(args.store_result, encoding="utf-8", mode="a") as f:
             f.write('{:.2f}\t{:.5f}\t{:.4f}\n'.format(args.dropout, args.lr, mrr(total_rank_fil)))

@@ -43,6 +43,7 @@ class PreTrainModel(nn.Module):
         mods['subject_relation_emb'] = nn.Embedding(numr, dim_r)
         mods['object_relation_emb'] = nn.Embedding(numr, dim_r)
         for l in range(self.deepth):
+            # mods['norm' + str(l)] = nn.LayerNorm(dim_in)
             conv_dict = dict()
             for r in range(self.numr):
                 conv_dict['r' + str(r)] = dglnn.GraphConv(dim_in, dim_out)
@@ -58,6 +59,7 @@ class PreTrainModel(nn.Module):
     def forward(self, sub, obj, rel, g):
         h = self.mods['entity_emb'].weight
         for l in range(self.deepth):
+            # h = self.mods['norm' + str(l)](h)
             h = self.mods['conv' + str(l)](g, {'entity': h})['entity']
             h = self.mods['dropout' + str(l)](h)
         sub_emb = h[sub]

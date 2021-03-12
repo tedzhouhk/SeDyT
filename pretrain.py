@@ -103,7 +103,7 @@ with torch.no_grad():
     entity_emb = list()
     g = None
     model.eval()
-    with tqdm(total=data.ts_train + data.ts_val) as pbar:
+    with tqdm(total=data.ts_train + data.ts_val + data.ts_test) as pbar:
         for ts in range(0, data.ts_train):
             event_dict = data.get_hetero_dict(ts)
             if g is None:
@@ -115,6 +115,11 @@ with torch.no_grad():
             entity_emb.append(model.get_entity_embedding(g).clone().detach().cpu())
             pbar.update(1)
         for ts in range(data.ts_train, data.ts_train + data.ts_val):
+            event_dict = data.get_hetero_dict(ts)
+            add_edges_from_dict(g, event_dict)
+            entity_emb.append(model.get_entity_embedding(g).clone().detach().cpu())
+            pbar.update(1)
+        for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
             event_dict = data.get_hetero_dict(ts)
             add_edges_from_dict(g, event_dict)
             entity_emb.append(model.get_entity_embedding(g).clone().detach().cpu())
