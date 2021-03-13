@@ -12,6 +12,7 @@ parser.add_argument('--history', type=int, nargs='+', default=[31, 15, 7, 3, 2, 
 parser.add_argument('--attention_head', type=int, default=8, help='number of attention heads')
 parser.add_argument('--layer', type=int, default=2, help='number of layers')
 parser.add_argument('--store_result', type=str, default='', help='store the result for tuning')
+parser.add_argument('--force_step', type=int, default=0, help='forced step length, only used in single network')
 args = parser.parse_args()
 
 import os
@@ -24,12 +25,16 @@ import numpy as np
 from events import Events
 from tqdm import tqdm
 import time
+import datetime
 from utils import *
 from models import *
 
 data = Events(args.data)
 
-max_step = data.ts_test
+max_step = data.ts_test if args.force_step == 0 else args.force_step
+if not os.path.isdir('models'):
+    os.mkdir('models')
+save_path = 'models/' + args.data + '_' + args.network_type + str(datetime.datetime.now())[:19] + '.pkl'
 
 ent_emb = torch.load('data/' + args.data + '/ent_emb.pt', map_location=torch.device('cuda:0'))
 obj_rel_emb = torch.load('data/' + args.data + '/obj_rel_emb.pt', map_location=torch.device('cuda:0'))
@@ -39,6 +44,8 @@ dim_in = ent_emb.shape[2] * len(args.history)
 
 if args.network_type == 'single':
     model = FixStepAttentionModel(dim_in, args.dim, obj_rel_emb.shape[1], ent_emb.shape[1], sub_rel_emb, obj_rel_emb, dropout=args.dropout, h_att=args.attention_head, num_l=args.layer, lr=args.lr).cuda()
+    max_mrr = 0
+    max_e = 0
 
     for e in range(args.epoch):
         torch.cuda.empty_cache()
@@ -65,6 +72,10 @@ if args.network_type == 'single':
                 total_rank_fil = torch.cat(total_rank_fil)
         print('\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
         print('\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
+        if mrr(total_rank_unf) > max_mrr:
+            max_mrr = mrr(total_rank_unf)
+            max_e = e
+            torch.save(model.state_dict(), save_path)
         # testing
         # with tqdm(total=data.ts_test) as pbar:
         #     with torch.no_grad():
@@ -83,6 +94,8 @@ if args.network_type == 'single':
         # print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
         # print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     # testing
+    print(colorama.Fore.RED + 'Testing...'+ colorama.Style.RESET_ALL)
+    model.load_state_dict(torch.load(save_path))
     rank_fil_l = list()
     with tqdm(total=data.ts_test) as pbar:
         with torch.no_grad():
@@ -98,7 +111,7 @@ if args.network_type == 'single':
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
-    print(colorama.Fore.RED + 'Test result:' + colorama.Style.RESET_ALL)
+    print(colorama.Fore.RED + 'Loading epoch {:d} with filtered MRR {:.4f}'.format(max_e, max_mrr) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     # print(colorama.Fore.RED + '\tfiltered MRR at each timestamp: '+ '\t'.join(str(float(fil)) for fil in rank_fil_l) + colorama.Style.RESET_ALL)
