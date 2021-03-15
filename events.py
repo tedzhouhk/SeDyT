@@ -135,9 +135,9 @@ class Events:
                 self.object_copy_mask_dict[r][s].add(o)
                 self.subject_copy_mask_dict[r][o].add(s)
 
-
-    def get_batches(self, ts, bs, require_mask=True, copy_mask=0):
+    def get_batches(self, ts, bs, require_mask=True, copy_mask_ts=0):
         # get minibatches of event at time ts with batch size bs
+        # copy mask contains history up to copy_mask_ts times ago
         events = self.get_events(ts)
         # adjust batchsize to average events in a batch
         if bs > 0:
@@ -148,6 +148,7 @@ class Events:
         objs = list()
         rels = list()
         masks = list()
+        copy_masks = list()
         sub = list()
         obj = list()
         rel = list()
@@ -156,6 +157,12 @@ class Events:
             mask_obj_y = list()
             mask_sub_x = list()
             mask_sub_y = list()
+        if copy_mask_ts > 0:
+            self.update_copy_mask(ts-copy_mask_ts)
+            copy_mask_obj_x = list()
+            copy_mask_obj_y = list()
+            copy_mask_sub_x = list()
+            copy_mask_sub_y = list()
         random.shuffle(events)
         for s, r, o, _ in events:
             if len(sub) > bs:
@@ -170,6 +177,14 @@ class Events:
                     mask_obj_y = list()
                     mask_sub_x = list()
                     mask_sub_y = list()
+                if copy_mask_ts > 0:
+                    copy_mask_x = torch.cat([torch.tensor(copy_mask_sub_x), torch.tensor(copy_mask_obj_x) + len(sub)])
+                    copy_mask_y = torch.cat([torch.tensor(copy_mask_sub_y), torch.tensor(copy_mask_obj_y)])
+                    copy_masks.append(torch.stack([copy_mask_x,copy_mask_y]).cuda())
+                    copy_mask_obj_x = list()
+                    copy_mask_obj_y = list()
+                    copy_mask_sub_x = list()
+                    copy_mask_sub_y = list()
                 sub = list()
                 obj = list()
                 rel = list()
@@ -181,6 +196,11 @@ class Events:
                 mask_obj_x += [len(sub) - 1] * len(self.object_mask_dict[r][s])
                 mask_sub_y += self.subject_mask_dict[r][o]
                 mask_sub_x += [len(sub) - 1] * len(self.subject_mask_dict[r][o])
+            if copy_mask_ts > 0:
+                copy_mask_obj_y += list(self.object_copy_mask_dict[r][s])
+                copy_mask_obj_x += [len(sub) - 1] * len(self.object_copy_mask_dict[r][s])
+                copy_mask_sub_y += list(self.subject_copy_mask_dict[r][o])
+                copy_mask_sub_x += [len(sub) - 1] * len(self.subject_copy_mask_dict[r][o])
         subs.append(torch.tensor(sub).cuda())
         objs.append(torch.tensor(obj).cuda())
         rels.append(torch.tensor(rel).cuda())
