@@ -71,6 +71,7 @@ class Events:
         self.ts_train = len(self.train_events)
         self.ts_val = len(self.val_events)
         self.ts_test = len(self.test_events)
+        self.copy_mask_ts = self.ts_train + self.ts_val + self.ts_test
         print('\tnum entity: {:d} num relation: {:d}'.format(self.num_entity, self.num_relation))
         print('\tduration train: {:d} vald: {:d} test: {:d}'.format(len(self.train_events), len(self.val_events), len(self.test_events)))
         self.generate_mask_dict()
@@ -94,28 +95,50 @@ class Events:
                 self.object_mask_dict[r][e] = list(self.object_mask_dict[r][e])
                 self.subject_mask_dict[r][e] = list(self.subject_mask_dict[r][e])
 
-    def get_hetero_dict(self, ts):
-        # get dict of events happens at time ts
+    def get_events(self, ts):
         if ts >= self.ts_train + self.ts_val:
             events = self.test_events[ts - self.ts_train - self.ts_val]
         elif ts >= self.ts_train:
             events = self.val_events[ts - self.ts_train]
         else:
             events = self.train_events[ts]
+        return events
+
+    def get_hetero_dict(self, ts):
+        # get dict of events happens at time ts
+        events = self.get_events(ts)
         event_dict = defaultdict(lambda: list())
         for s, r, o, _ in events:
             event_dict[('entity', 'r' + str(r), 'entity')].append((s, o))
             event_dict[('entity', '-r' + str(r), 'entity')].append((o, s))
         return event_dict
-
-    def get_batches(self, ts, bs, require_mask=True):
-        # get minibatches of event at time ts with batch size bs
-        if ts >= self.ts_train + self.ts_val:
-            events = self.test_events[ts - self.ts_train - self.ts_val]
-        elif ts >= self.ts_train:
-            events = self.val_events[ts - self.ts_train]
+    
+    def update_copy_mask(self, ts):
+        # update the history mask until timestamp ts (include ts) for the copy module
+        if self.copy_mask_ts + 1 != ts:
+            self.object_copy_mask_dict = dict()
+            self.subject_copy_mask_dict = dict()
+            for r in range(self.num_relation):
+                self.object_copy_mask_dict[r] = dict()
+                self.subject_copy_mask_dict[r] = dict()
+                for e in range(self.num_entity):
+                    self.object_copy_mask_dict[r][e] = set()
+                    self.subject_copy_mask_dict[r][e] = set()
+            for t in range(ts):
+                events = self.get_events(t)
+                for s, r, o, _ in events:
+                    self.object_copy_mask_dict[r][s].add(o)
+                    self.subject_copy_mask_dict[r][o].add(s)
         else:
-            events = self.train_events[ts]
+            events = self.get_events(ts)
+            for s, r, o, _ in events:
+                self.object_copy_mask_dict[r][s].add(o)
+                self.subject_copy_mask_dict[r][o].add(s)
+
+
+    def get_batches(self, ts, bs, require_mask=True, copy_mask=0):
+        # get minibatches of event at time ts with batch size bs
+        events = self.get_events(ts)
         # adjust batchsize to average events in a batch
         if bs > 0:
             bs = round(len(events) // round(len(events) / bs))

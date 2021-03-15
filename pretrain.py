@@ -6,6 +6,7 @@ parser.add_argument('-e', '--epoch', type=int, default=10, help='number of epoch
 parser.add_argument('--dim', type=int, default=128, help='dimension of hidden features')
 parser.add_argument('--dim_e', type=int, default=128, help='dimension of entity attributes')
 parser.add_argument('--dim_r', type=int, default=128, help='dimension of relation attributes')
+parser.add_argument('--dim_t', type=int, default=0, help='dimension for time encoding, 0 for no time encoding')
 parser.add_argument('--dropout', type=float, help='dropout rate')
 parser.add_argument('--lr', type=float, default=0.01,help='learning rate')
 parser.add_argument('--batch_size', type=int, default=1024, help='batch size used in training')
@@ -27,7 +28,7 @@ from models import *
 
 data = Events(args.data)
 
-model = PreTrainModel(args.dim_e, args.dim, args.dim_r, data.num_relation, data.num_entity, args.dropout).cuda()
+model = PreTrainModel(args.dim_e, args.dim, args.dim_r, data.num_relation, data.num_entity, args.dropout, dim_t = args.dim_t).cuda()
 
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -58,7 +59,7 @@ for e in range(args.epoch):
                 for sub, obj, rel in zip(batches[0], batches[1], batches[2]):
                     optimizer.zero_grad()
                     t_s = time.time()
-                    loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g)
+                    loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g, ts)
                     t_forw += time.time() - t_s
                     t_s = time.time()
                     loss.backward()
@@ -76,7 +77,7 @@ for e in range(args.epoch):
             for sub, obj, rel, mask in zip(batches[0], batches[1], batches[2], batches[3]):
                 optimizer.zero_grad()
                 t_s = time.time()
-                loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g, mask)
+                loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g, ts, mask)
                 t_forw += time.time() - t_s
                 t_s = time.time()
                 loss.backward()
@@ -132,4 +133,6 @@ with torch.no_grad():
     torch.save(sub_rel_emb, 'data/' + args.data + '/sub_rel_emb.pt')
     torch.save(obj_rel_emb, 'data/' + args.data + '/obj_rel_emb.pt')
     torch.save(entity_emb, 'data/' + args.data + '/ent_emb.pt')
-            
+    if args.dim_t > 0:
+        time_emb = model.mods['time_emb'].weight.clone().detach().squeeze().cpu()
+        torch.save(time_emb, 'data/' + args.data + '/time_emb.pt')
