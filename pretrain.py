@@ -80,6 +80,7 @@ for e in range(args.epoch):
                 t_forw += time.time() - t_s
                 t_s = time.time()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm(model.parameters(), 5)
                 optimizer.step()
                 t_back += time.time() - t_s
                 total_rank_unf.append(rank_unf.detach().clone())

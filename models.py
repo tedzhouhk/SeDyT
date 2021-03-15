@@ -178,6 +178,7 @@ class FixStepAttentionModel(torch.nn.Module):
         loss = self.loss_fn(pre, tru)
         if train:
             loss.backward()
+            torch.nn.utils.clip_grad_norm(model.parameters(), 5)
             self.optimizer.step()
         with torch.no_grad():
             pre = pre.clone().detach()
