@@ -72,8 +72,8 @@ if args.network_type == 'single':
                 total_rank_fil = torch.cat(total_rank_fil)
         print('\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
         print('\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
-        if mrr(total_rank_unf) > max_mrr:
-            max_mrr = mrr(total_rank_unf)
+        if mrr(total_rank_fil) > max_mrr:
+            max_mrr = mrr(total_rank_fil)
             max_e = e
             torch.save(model.state_dict(), save_path)
         # testing

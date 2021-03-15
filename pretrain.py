@@ -9,7 +9,7 @@ parser.add_argument('--dim_r', type=int, default=128, help='dimension of relatio
 parser.add_argument('--dropout', type=float, help='dropout rate')
 parser.add_argument('--lr', type=float, default=0.01,help='learning rate')
 parser.add_argument('--batch_size', type=int, default=1024, help='batch size used in training')
-parser.add_argument('--gpu', type=int, default=1, help='which gpu to use')
+parser.add_argument('--gpu', type=int, default=0, help='which gpu to use')
 parser.add_argument('--verbose', default=0, action='store_true', help='whether to prinmt verbose output')
 args = parser.parse_args()
 
