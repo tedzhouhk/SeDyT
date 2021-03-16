@@ -112,7 +112,7 @@ class AttentionLayer(torch.nn.Module):
             v = self.mods['w_v_' + str(h)](hidd)
             out.append(torch.matmul(adj[h], v))
         out = torch.cat(out, dim=1)
-        return torch.nn.functional.relu(out)
+        return torch.nn.functional.tanh(out)
 
 class Attention(torch.nn.Module):
 
@@ -140,8 +140,8 @@ class FixStepAttentionModel(torch.nn.Module):
         super(FixStepAttentionModel, self).__init__()
         self.num_l = num_l
         mods = dict()
-        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
-        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
+        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=True)
+        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=True)
         mods['attention'] = Attention(in_dim, out_dim, h_att=h_att)
         for l in range(num_l):
             mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
@@ -178,7 +178,7 @@ class FixStepAttentionModel(torch.nn.Module):
         loss = self.loss_fn(pre, tru)
         if train:
             loss.backward()
-            torch.nn.utils.clip_grad_norm(model.parameters(), 5)
+            torch.nn.utils.clip_grad_norm(self.parameters(), 5)
             self.optimizer.step()
         with torch.no_grad():
             pre = pre.clone().detach()
