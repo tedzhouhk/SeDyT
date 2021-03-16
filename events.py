@@ -208,5 +208,9 @@ class Events:
             mask_x = torch.cat([torch.tensor(mask_sub_x), torch.tensor(mask_obj_x) + len(sub)])
             mask_y = torch.cat([torch.tensor(mask_sub_y), torch.tensor(mask_obj_y)])
             masks.append(torch.stack([mask_x, mask_y]).cuda())
-        return subs, objs, rels, masks
+        if copy_mask_ts > 0:
+            copy_mask_x = torch.cat([torch.tensor(copy_mask_sub_x), torch.tensor(copy_mask_obj_x) + len(sub)])
+            copy_mask_y = torch.cat([torch.tensor(copy_mask_sub_y), torch.tensor(copy_mask_obj_y)])
+            copy_masks.append(torch.stack([copy_mask_x,copy_mask_y]).cuda())
+        return subs, objs, rels, masks, copy_masks
         

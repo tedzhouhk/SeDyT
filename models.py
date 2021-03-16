@@ -57,8 +57,8 @@ class PreTrainModel(nn.Module):
             mods['dropout' + str(l)] = nn.Dropout(dropout)
             mods['act' + str(l)] = nn.Tanh()
             dim_in = dim_out
-        mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
-        mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
+        mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False, dropout=dropout)
+        mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
         self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
 
@@ -123,7 +123,7 @@ class AttentionLayer(torch.nn.Module):
             v = self.mods['w_v_' + str(h)](hidd)
             out.append(torch.matmul(adj[h], v))
         out = torch.cat(out, dim=1)
-        return torch.nn.functional.tanh(out)
+        return torch.nn.functional.relu(out)
 
 class Attention(torch.nn.Module):
 
@@ -145,51 +145,92 @@ class Attention(torch.nn.Module):
             out.append(self.mods['softmax' + str(h)](torch.matmul(q, k.T)))
         return out
 
+class Copy(torch.nn.Module):
+    # copy module used in AAAI'21 Learning from History: Modeling Temporal Knowledge Graphs with Sequential Copy-Generation Networks
+
+    def __init__(self, in_dim, dim_r, nume, dropout=0):
+        super(Copy, self).__init__()
+        mods = dict()
+        mods['object_classifier'] = Perceptron(in_dim + dim_r, nume, act=False, dropout=dropout)
+        mods['subject_classifier'] = Perceptron(in_dim + dim_r, nume, act=False,dropout=dropout)
+        self.mods = nn.ModuleDict(mods)
+    
+    def forward(self, sub_emb, obj_emb, sub_rel_emb, obj_rel_emb, copy_mask):
+        raw_sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
+        raw_obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
+        masked_predict = torch.tensor([float('-inf')]).cuda().expand(raw_sub_predict.shape[0] * 2, raw_sub_predict.shape[1])
+        raw_predict = torch.cat([raw_sub_predict, raw_obj_predict], dim=0)
+        masked_predict[copy_mask[0], copy_mask[1]] = raw_predict[copy_mask[0], copy_mask[1]]
+        return masked_predict[:masked_predict.shape[0]//2], masked_predict[masked_predict.shape[0]//2:]
+
+
 class FixStepAttentionModel(torch.nn.Module):
 
-    def __init__(self, in_dim, out_dim, dim_r, nume, sub_rel_emb, obj_rel_emb, dropout=0, h_att=8, num_l=1, lr=0.01):
+    def __init__(self, in_dim, out_dim, dim_r, nume, sub_rel_emb, obj_rel_emb, dropout=0, h_att=8, num_l=1, lr=0.01, copy=0, copy_dim=0):
         super(FixStepAttentionModel, self).__init__()
         self.num_l = num_l
+        self.copy = copy
+        self.copy_dim = copy_dim
         mods = dict()
+        if self.copy > 0:
+            mods['copy'] = Copy(copy_dim, dim_r, nume, dropout=dropout)
         mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
         mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
         mods['attention'] = Attention(in_dim, out_dim, h_att=h_att)
+        mods['dense'] = Perceptron(in_dim + self.num_l * out_dim, out_dim, dropout=dropout, norm=True, act=True)
         for l in range(num_l):
             mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
             mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
             in_dim = out_dim
-        mods['object_classifier'] = Perceptron(out_dim + dim_r, nume, act=False)
-        mods['subject_classifier'] = Perceptron(out_dim + dim_r, nume, act=False)
+        mods['object_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
+        mods['subject_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
-        self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
+        self.loss_fn = nn.NLLLoss(reduction='sum')
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
-    def forward(self, hid, sub, obj, rel):
+    def forward(self, hid, sub, obj, rel, copy_mask=None):
+        sub_rel_emb = self.mods['subject_relation_emb'](rel)
+        obj_rel_emb = self.mods['object_relation_emb'](rel)
+        copy_sub_predict = None
+        copy_obj_predict = None
+        if self.copy > 0:
+            copy_hid = hid[:,-self.copy_dim:]
+            copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[sub], copy_hid[obj], sub_rel_emb, obj_rel_emb, copy_mask)
+        h = [hid]
         adj = self.mods['attention'](self.mods['norm_0'](hid))
         for l in range(self.num_l):
             hid = self.mods['norm_' + str(l)](hid)
             hid = self.mods['att_' + str(l)](hid, adj)
+            h.append(hid)
+        h = torch.cat(h, 1)
+        hid = self.mods['dense'](h)
         sub_emb = hid[sub]
         obj_emb = hid[obj]
-        sub_rel_emb = self.mods['subject_relation_emb'](rel)
-        obj_rel_emb = self.mods['object_relation_emb'](rel)
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
-        return sub_predict, obj_predict
+        return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
 
-    def step(self, hid, sub, obj, rel, filter_mask=None, train=True):
+    def step(self, hid, sub, obj, rel, filter_mask=None, copy_mask=None, train=True):
         if train:
             self.train()
             self.optimizer.zero_grad()
         else:
             self.eval()
-        sub_pre, obj_pre = self.forward(hid, sub, obj, rel)
+        sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(hid, sub, obj, rel, copy_mask)
+        sub_pre = nn.functional.softmax(sub_pre, dim=1)
+        obj_pre = nn.functional.softmax(obj_pre, dim=1)
+        if self.copy > 0:
+            copy_sub_predict = nn.functional.softmax(copy_sub_predict, dim=1)
+            copy_obj_predict = nn.functional.softmax(copy_obj_predict, dim=1)
+            sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
+            obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
+        sub_pre = torch.log(sub_pre)
+        obj_pre = torch.log(obj_pre)
         pre = torch.cat([sub_pre, obj_pre])
         tru = torch.cat([sub, obj])
         loss = self.loss_fn(pre, tru)
         if train:
             loss.backward()
-            torch.nn.utils.clip_grad_norm(self.parameters(), 5)
             self.optimizer.step()
         with torch.no_grad():
             pre = pre.clone().detach()
@@ -198,6 +239,6 @@ class FixStepAttentionModel(torch.nn.Module):
             rank_unf = get_rank(pre, pre_thres)
             rank_fil = None
             if filter_mask is not None:
-                pre[filter_mask[0], filter_mask[1]] = float('-inf')
+                pre[filter_mask[0], filter_mask[1]] = 0
                 rank_fil = get_rank(pre, pre_thres)
         return loss, rank_unf, rank_fil
