@@ -30,7 +30,7 @@ class Perceptron(torch.nn.Module):
 class PreTrainModel(nn.Module):
     # model for pre-training
 
-    def __init__(self, dim_in, dim_out, dim_r, numr, nume, dropout=0, deepth=2):
+    def __init__(self, dim_in, dim_out, dim_r, numr, nume, dropout=0, deepth=2, dim_t=0):
         super(PreTrainModel, self).__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
@@ -38,10 +38,15 @@ class PreTrainModel(nn.Module):
         self.numr = numr
         self.nume = nume
         self.deepth = deepth
+        self.enc_time = False
         mods = dict()
         mods['entity_emb'] = nn.Embedding(nume, dim_in)
         mods['subject_relation_emb'] = nn.Embedding(numr, dim_r)
         mods['object_relation_emb'] = nn.Embedding(numr, dim_r)
+        if dim_t > 0:
+            mods['time_emb'] = nn.Embedding(dim_t, 1)
+            self.enc_time = True
+            self.dim_t = dim_t
         for l in range(self.deepth):
             # mods['norm' + str(l)] = nn.LayerNorm(dim_in)
             conv_dict = dict()
@@ -50,24 +55,31 @@ class PreTrainModel(nn.Module):
                 conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in, dim_out)
             mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict,aggregate='mean')
             mods['dropout' + str(l)] = nn.Dropout(dropout)
+            mods['act' + str(l)] = nn.ReLU()
             dim_in = dim_out
-        mods['object_classifier'] = Perceptron(dim_out + dim_r, nume, act=False)
-        mods['subject_classifier'] = Perceptron(dim_out + dim_r, nume, act=False)
+        mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
+        mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
         self.mods = nn.ModuleDict(mods)
         self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
 
-    def forward(self, sub, obj, rel, g):
+    def forward(self, sub, obj, rel, g, ts):
         h = self.mods['entity_emb'].weight
         for l in range(self.deepth):
             # h = self.mods['norm' + str(l)](h)
             h = self.mods['conv' + str(l)](g, {'entity': h})['entity']
+            h = self.mods['act' + str(l)](h)
             h = self.mods['dropout' + str(l)](h)
         sub_emb = h[sub]
         obj_emb = h[obj]
         sub_rel_emb = self.mods['subject_relation_emb'](rel)
         obj_rel_emb = self.mods['object_relation_emb'](rel)
-        sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
-        obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
+        if not self.enc_time:
+            sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
+            obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
+        else:
+            time_emb = (self.mods['time_emb'].weight.squeeze() * ts).expand(obj_emb.shape[0], self.dim_t)
+            sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb, time_emb], 1))
+            obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb, time_emb], 1))
         return sub_predict, obj_predict
     
     def get_entity_embedding(self, g):
@@ -77,8 +89,8 @@ class PreTrainModel(nn.Module):
             h = self.mods['dropout' + str(l)](h)
         return h
 
-    def forward_and_loss(self, sub, obj, rel, g, filter_mask=None):
-        sub_pre, obj_pre = self.forward(sub, obj, rel, g)
+    def forward_and_loss(self, sub, obj, rel, g, ts, filter_mask=None):
+        sub_pre, obj_pre = self.forward(sub, obj, rel, g, ts)
         pre = torch.cat([sub_pre, obj_pre])
         tru = torch.cat([sub, obj])
         loss = self.loss_fn(pre, tru)
@@ -102,7 +114,6 @@ class AttentionLayer(torch.nn.Module):
         for h in range(h_att):
             mods['dropout' + str(h)] = nn.Dropout(p=dropout)
             mods['w_v_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
-            mods['softmax' + str(h)] = nn.Softmax(dim=1)
         self.mods = nn.ModuleDict(mods)
         
     def forward(self, hid, adj):
