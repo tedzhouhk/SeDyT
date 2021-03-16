@@ -55,7 +55,7 @@ class PreTrainModel(nn.Module):
                 conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in, dim_out)
             mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict,aggregate='mean')
             mods['dropout' + str(l)] = nn.Dropout(dropout)
-            mods['act' + str(l)] = nn.ReLU()
+            mods['act' + str(l)] = nn.Identity()
             dim_in = dim_out
         mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
         mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
