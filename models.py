@@ -55,7 +55,7 @@ class PreTrainModel(nn.Module):
                 conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in, dim_out)
             mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict,aggregate='mean')
             mods['dropout' + str(l)] = nn.Dropout(dropout)
-            mods['act' + str(l)] = nn.Identity()
+            mods['act' + str(l)] = nn.Tanh()
             dim_in = dim_out
         mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
         mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False)
@@ -151,8 +151,8 @@ class FixStepAttentionModel(torch.nn.Module):
         super(FixStepAttentionModel, self).__init__()
         self.num_l = num_l
         mods = dict()
-        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=True)
-        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=True)
+        mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
+        mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
         mods['attention'] = Attention(in_dim, out_dim, h_att=h_att)
         for l in range(num_l):
             mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
