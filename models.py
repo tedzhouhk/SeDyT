@@ -177,7 +177,7 @@ class FixStepAttentionModel(torch.nn.Module):
         mods['subject_relation_emb'] = nn.Embedding.from_pretrained(sub_rel_emb, freeze=False)
         mods['object_relation_emb'] = nn.Embedding.from_pretrained(obj_rel_emb, freeze=False)
         mods['attention'] = Attention(in_dim, out_dim, h_att=h_att)
-        mods['dense'] = Perceptron(in_dim + self.num_l * out_dim, out_dim, dropout=dropout, norm=True, act=True)
+        # mods['dense'] = Perceptron(in_dim + self.num_l * out_dim, out_dim, dropout=dropout, norm=True, act=True)
         for l in range(num_l):
             mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
             mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
@@ -196,14 +196,14 @@ class FixStepAttentionModel(torch.nn.Module):
         if self.copy > 0:
             copy_hid = hid[:,-self.copy_dim:]
             copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[sub], copy_hid[obj], sub_rel_emb, obj_rel_emb, copy_mask)
-        h = [hid]
+        # h = [hid]
         adj = self.mods['attention'](self.mods['norm_0'](hid))
         for l in range(self.num_l):
             hid = self.mods['norm_' + str(l)](hid)
             hid = self.mods['att_' + str(l)](hid, adj)
-            h.append(hid)
-        h = torch.cat(h, 1)
-        hid = self.mods['dense'](h)
+            # h.append(hid)
+        # h = torch.cat(h, 1)
+        # hid = self.mods['dense'](h)
         sub_emb = hid[sub]
         obj_emb = hid[obj]
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
@@ -231,7 +231,8 @@ class FixStepAttentionModel(torch.nn.Module):
                 obj_pre = copy_obj_predict
         pre = torch.cat([sub_pre, obj_pre])
         # to avoid log of zero
-        pre_log = torch.log(pre + 1e-7)
+        pre_log = torch.log(pre)
+        # pre_log = torch.log(pre + 1e-7)
         tru = torch.cat([sub, obj])
         loss = self.loss_fn(pre_log, tru)
         if train:
