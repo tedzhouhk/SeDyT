@@ -13,6 +13,7 @@ parser.add_argument('--attention_head', type=int, default=8, help='number of att
 parser.add_argument('--layer', type=int, default=2, help='number of layers')
 parser.add_argument('--store_result', type=str, default='', help='store the result for tuning')
 parser.add_argument('--force_step', type=int, default=0, help='forced step length, only used in single network')
+parser.add_argument('--batch_size', type=int, default=2048, help='batch size used in training')
 parser.add_argument('--copy', type=float, default=0, help='alpha of the copy module, see AAAI 21 learning from history paper')
 args = parser.parse_args()
 
@@ -57,14 +58,17 @@ if args.network_type == 'single':
             for ts in range(args.fwd + max(args.history) + max_step, data.ts_train):
                 hid = extract_emb(ent_emb, args.history, ts - max_step)
                 if args.copy > 0:
-                    batches = data.get_batches(ts, -1, require_mask=False, copy_mask_ts=ts - max_step)
-                    print(batches[0][0].shape)
-                    _, rank_unf, _ = model.step(hid, batches[0][0], batches[1][0], batches[2][0], filter_mask=None, copy_mask=batches[4][0], train=True)
+                    batches = data.get_batches(ts, args.batch_size, require_mask=False, copy_mask_ts=max_step)
+                    for b in range(len(batches[0])):
+                        _, rank_unf, _ = model.step(hid, batches[0][b], batches[1][b], batches[2][b], filter_mask=None, copy_mask=batches[4][b], train=True)
+                        with torch.no_grad():
+                            train_rank_unf.append(rank_unf)
                 else:
                     batches = data.get_batches(ts, -1, require_mask=False)
-                    _, rank_unf, _ = model.step(hid, batches[0][0], batches[1][0], batches[2][0], filter_mask=None, train=True)
-                with torch.no_grad():
-                    train_rank_unf.append(rank_unf)
+                    for b in range(len(batches[0])):
+                        _, rank_unf, _ = model.step(hid, batches[0][b], batches[1][b], batches[2][b], filter_mask=None, train=True)
+                        with torch.no_grad():
+                            train_rank_unf.append(rank_unf)
                 pbar.update(1)
             # validation
             total_rank_unf = list()
@@ -73,7 +77,7 @@ if args.network_type == 'single':
                 for ts in range(data.ts_train, data.ts_train + data.ts_val):
                     hid = extract_emb(ent_emb, args.history, ts - max_step)
                     if args.copy > 0:
-                        batches = data.get_batches(ts, -1, require_mask=True, copy_mask_ts=ts - max_step)
+                        batches = data.get_batches(ts, -1, require_mask=True, copy_mask_ts=max_step)
                         loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
                     else:
                         batches = data.get_batches(ts, -1, require_mask=True)
@@ -103,7 +107,7 @@ if args.network_type == 'single':
             for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
                 hid = extract_emb(ent_emb, args.history, ts - max_step)
                 if args.copy > 0:
-                    batches = data.get_batches(ts, -1, require_mask=True, copy_mask_ts=ts - max_step)
+                    batches = data.get_batches(ts, -1, require_mask=True, copy_mask_ts=max_step)
                     loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
                 else:
                     batches = data.get_batches(ts, -1, require_mask=True)

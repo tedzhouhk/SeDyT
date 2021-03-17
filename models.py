@@ -152,13 +152,13 @@ class Copy(torch.nn.Module):
         super(Copy, self).__init__()
         mods = dict()
         mods['object_classifier'] = Perceptron(in_dim + dim_r, nume, act=False, dropout=dropout)
-        mods['subject_classifier'] = Perceptron(in_dim + dim_r, nume, act=False,dropout=dropout)
+        mods['subject_classifier'] = Perceptron(in_dim + dim_r, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
     
     def forward(self, sub_emb, obj_emb, sub_rel_emb, obj_rel_emb, copy_mask):
         raw_sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         raw_obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
-        masked_predict = torch.tensor([float('-inf')]).cuda().expand(raw_sub_predict.shape[0] * 2, raw_sub_predict.shape[1])
+        masked_predict = torch.tensor([-100.0]).cuda().repeat(raw_sub_predict.shape[0] * 2, raw_sub_predict.shape[1])
         raw_predict = torch.cat([raw_sub_predict, raw_obj_predict], dim=0)
         masked_predict[copy_mask[0], copy_mask[1]] = raw_predict[copy_mask[0], copy_mask[1]]
         return masked_predict[:masked_predict.shape[0]//2], masked_predict[masked_predict.shape[0]//2:]
@@ -222,13 +222,18 @@ class FixStepAttentionModel(torch.nn.Module):
         if self.copy > 0:
             copy_sub_predict = nn.functional.softmax(copy_sub_predict, dim=1)
             copy_obj_predict = nn.functional.softmax(copy_obj_predict, dim=1)
-            sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
-            obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
-        sub_pre = torch.log(sub_pre)
-        obj_pre = torch.log(obj_pre)
+            if self.copy != 1:
+                sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
+                obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
+            else:
+                # avoid 0 coefficient in back propagation
+                sub_pre = copy_sub_predict
+                obj_pre = copy_obj_predict
         pre = torch.cat([sub_pre, obj_pre])
+        # to avoid log of zero
+        pre_log = torch.log(pre + 1e-7)
         tru = torch.cat([sub, obj])
-        loss = self.loss_fn(pre, tru)
+        loss = self.loss_fn(pre_log, tru)
         if train:
             loss.backward()
             self.optimizer.step()
@@ -239,6 +244,8 @@ class FixStepAttentionModel(torch.nn.Module):
             rank_unf = get_rank(pre, pre_thres)
             rank_fil = None
             if filter_mask is not None:
-                pre[filter_mask[0], filter_mask[1]] = 0
+                pre[filter_mask[0], filter_mask[1]] = float('-inf')
                 rank_fil = get_rank(pre, pre_thres)
+                # import pdb; pdb.set_trace()
+                # print('a')
         return loss, rank_unf, rank_fil

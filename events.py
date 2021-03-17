@@ -115,7 +115,9 @@ class Events:
     
     def update_copy_mask(self, ts):
         # update the history mask until timestamp ts (include ts) for the copy module
-        if self.copy_mask_ts + 1 != ts:
+        if self.copy_mask_ts == ts:
+            pass
+        elif self.copy_mask_ts + 1 != ts:
             self.object_copy_mask_dict = dict()
             self.subject_copy_mask_dict = dict()
             for r in range(self.num_relation):
