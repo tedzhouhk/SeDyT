@@ -8,7 +8,7 @@ parser.add_argument('--dropout', type=float, help='dropout rate')
 parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
 parser.add_argument('--gpu', type=int, default=1, help='which gpu to use')
 parser.add_argument('--network_type', default='single', type=str, help='single, multi, or hybird')
-parser.add_argument('--history', type=int, nargs='+', default=[31, 15, 7, 3, 2, 1, 0], help='previous steps to look at')
+parser.add_argument('--history', type=int, nargs='+', default=[31, 15, 7, 3, 1, 0], help='previous steps to look at')
 parser.add_argument('--attention_head', type=int, default=8, help='number of attention heads')
 parser.add_argument('--layer', type=int, default=2, help='number of layers')
 parser.add_argument('--store_result', type=str, default='', help='store the result for tuning')
@@ -98,7 +98,9 @@ if args.network_type == 'single':
             torch.save(model.state_dict(), save_path)
     # testing
     print(colorama.Fore.RED + 'Testing...'+ colorama.Style.RESET_ALL)
-    model.load_state_dict(torch.load(save_path))
+    if max_e > 0:
+        print(colorama.Fore.RED + 'Loading epoch {:d} with filtered MRR {:.4f}'.format(max_e, max_mrr) + colorama.Style.RESET_ALL)
+        model.load_state_dict(torch.load(save_path))
     rank_fil_l = list()
     with tqdm(total=data.ts_test) as pbar:
         with torch.no_grad():
@@ -118,10 +120,9 @@ if args.network_type == 'single':
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
-    print(colorama.Fore.RED + 'Loading epoch {:d} with filtered MRR {:.4f}'.format(max_e, max_mrr) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     # print(colorama.Fore.RED + '\tfiltered MRR at each timestamp: '+ '\t'.join(str(float(fil)) for fil in rank_fil_l) + colorama.Style.RESET_ALL)
     if args.store_result != "":
         with open(args.store_result, encoding="utf-8", mode="a") as f:
-            f.write('{:.2f}\t{:.5f}\t{:.4f}\n'.format(args.dropout, args.lr, mrr(total_rank_fil)))
+            f.write('{:.2f}\t{:.2f}\t{:.5f}\t{:.4f}\n'.format(args.copy,args.dropout, args.lr, mrr(total_rank_fil)))
