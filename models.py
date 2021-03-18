@@ -201,7 +201,7 @@ class FixStepAttentionModel(torch.nn.Module):
         for l in range(self.num_l):
             hid = self.mods['norm_' + str(l)](hid)
             hid = self.mods['att_' + str(l)](hid, adj)
-            # h.append(hid)
+        #     h.append(hid)
         # h = torch.cat(h, 1)
         # hid = self.mods['dense'](h)
         sub_emb = hid[sub]
@@ -248,6 +248,4 @@ class FixStepAttentionModel(torch.nn.Module):
                 pre[filter_mask[0], filter_mask[1]] = float('-inf')
                 pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
-                # import pdb; pdb.set_trace()
-                # print('a')
         return loss, rank_unf, rank_fil
