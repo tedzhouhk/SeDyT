@@ -231,8 +231,8 @@ class FixStepAttentionModel(torch.nn.Module):
                 obj_pre = copy_obj_predict
         pre = torch.cat([sub_pre, obj_pre])
         # to avoid log of zero
-        pre_log = torch.log(pre)
-        # pre_log = torch.log(pre + 1e-7)
+        # pre_log = torch.log(pre)
+        pre_log = torch.log(pre + 1e-7)
         tru = torch.cat([sub, obj])
         loss = self.loss_fn(pre_log, tru)
         if train:
@@ -246,6 +246,7 @@ class FixStepAttentionModel(torch.nn.Module):
             rank_fil = None
             if filter_mask is not None:
                 pre[filter_mask[0], filter_mask[1]] = float('-inf')
+                pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
                 # import pdb; pdb.set_trace()
                 # print('a')
