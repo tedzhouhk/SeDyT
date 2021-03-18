@@ -3,7 +3,7 @@ import colorama
 
 for d in ['GDELT', 'ICEWS14', 'ICEWS18', 'WIKI', 'YAGO']:
     e = Events(d)
-    e.update_copy_mask(e.ts_train + e.ts_val)
+    e.update_copy_mask(e.ts_train + e.ts_val - 1)
     hist = e.object_copy_mask_dict
     total = 0
     hit = 0
