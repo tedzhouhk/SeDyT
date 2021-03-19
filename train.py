@@ -33,7 +33,7 @@ from models import *
 
 data = Events(args.data)
 
-max_step = data.ts_test if args.force_step == 0 else args.force_step
+max_step = data.ts_test + data.ts_val if args.force_step == 0 else args.force_step
 if not os.path.isdir('models'):
     os.mkdir('models')
 save_path = 'models/' + args.data + '_' + args.network_type + str(datetime.datetime.now())[:19] + '.pkl'
