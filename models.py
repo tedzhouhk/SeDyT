@@ -102,6 +102,7 @@ class PreTrainModel(nn.Module):
             rank_fil = None
             if filter_mask is not None:
                 pre[filter_mask[0], filter_mask[1]] = float('-inf')
+                pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
         return loss, rank_unf, rank_fil
 

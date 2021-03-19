@@ -122,7 +122,8 @@ if args.network_type == 'single':
             total_rank_fil = torch.cat(total_rank_fil)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
-    # print(colorama.Fore.RED + '\tfiltered MRR at each timestamp: '+ '\t'.join(str(float(fil)) for fil in rank_fil_l) + colorama.Style.RESET_ALL)
+    if args.force_step > 0:
+        print(colorama.Fore.RED + '\tfiltered MRR at each timestamp: '+ '\t'.join(str(float(fil)) for fil in rank_fil_l) + colorama.Style.RESET_ALL)
     if args.store_result != "":
         with open(args.store_result, encoding="utf-8", mode="a") as f:
             f.write('{:.2f}\t{:.2f}\t{:.5f}\t{:.4f}\n'.format(args.copy,args.dropout, args.lr, mrr(total_rank_fil)))
