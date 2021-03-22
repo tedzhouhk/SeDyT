@@ -60,7 +60,7 @@ class PreTrainModel(nn.Module):
         mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False, dropout=dropout)
         mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
-        self.loss_fn = nn.CrossEntropyLoss(reduction='sum')
+        self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
 
     def forward(self, sub, obj, rel, g, ts):
         h = self.mods['entity_emb'].weight
@@ -186,7 +186,9 @@ class FixStepAttentionModel(torch.nn.Module):
         mods['object_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
         mods['subject_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
-        self.loss_fn = nn.NLLLoss(reduction='sum')
+        self.loss_fn = nn.NLLLoss(reduction='mean')
+        self.loss_fn = nn.NLLLoss(reduction='mean')
+        self.loss_fn = nn.NLLLoss(reduction='mean')
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, hid, sub, obj, rel, copy_mask=None):
@@ -210,6 +212,9 @@ class FixStepAttentionModel(torch.nn.Module):
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
+
+    # def step_gen(self, hid, sub, obj, rel, filter_mask=None, copy_mask=None, train=True):
+
 
     def step(self, hid, sub, obj, rel, filter_mask=None, copy_mask=None, train=True):
         if train:
