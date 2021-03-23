@@ -54,21 +54,26 @@ if args.network_type == 'single':
         print('epoch {:d}:'.format(e))
         with tqdm(total=data.ts_train + data.ts_val - args.fwd - max(args.history) - max_step) as pbar:
             # training
-            train_rank_unf = list()
+            gen_train_rank_unf = list()
+            copy_train_rank_unf = list()
             for ts in range(args.fwd + max(args.history) + max_step, data.ts_train):
                 hid = extract_emb(ent_emb, args.history, ts - max_step)
                 if args.copy > 0:
                     batches = data.get_batches(ts, args.batch_size, require_mask=False, copy_mask_ts=max_step)
                     for b in range(len(batches[0])):
-                        _, rank_unf, _ = model.step(hid, batches[0][b], batches[1][b], batches[2][b], filter_mask=None, copy_mask=batches[4][b], train=True)
+                        copy_rank_unf = model.step_copy(hid, batches[0][b], batches[1][b], batches[2][b], batches[4][b])
+                        gen_rank_unf = model.step_gen(hid, batches[0][b], batches[1][b], batches[2][b])
+                        # _, rank_unf, _ = model.step(hid, batches[0][b], batches[1][b], batches[2][b], filter_mask=None, copy_mask=batches[4][b], train=True)
                         with torch.no_grad():
-                            train_rank_unf.append(rank_unf)
+                            copy_train_rank_unf.append(copy_rank_unf)
+                            gen_train_rank_unf.append(gen_rank_unf)
                 else:
                     batches = data.get_batches(ts, -1, require_mask=False)
                     for b in range(len(batches[0])):
-                        _, rank_unf, _ = model.step(hid, batches[0][b], batches[1][b], batches[2][b], filter_mask=None, train=True)
+                        gen_rank_unf = model.step_gen(hid, batches[0][b], batches[1][b], batches[2][b])
+                        # _, rank_unf, _ = model.step(hid, batches[0][b], batches[1][b], batches[2][b], filter_mask=None, train=True)
                         with torch.no_grad():
-                            train_rank_unf.append(rank_unf)
+                            gen_train_rank_unf.append(gen_rank_unf)
                 pbar.update(1)
             # validation
             total_rank_unf = list()
@@ -88,8 +93,13 @@ if args.network_type == 'single':
                 total_rank_unf = torch.cat(total_rank_unf)
                 total_rank_fil = torch.cat(total_rank_fil)
         with torch.no_grad():
-            train_rank_unf = torch.cat(train_rank_unf)
-        print('\ttrain raw MRR:      {:.4f}'.format(mrr(train_rank_unf)))
+            if args.copy > 0:
+                copy_train_rank_unf = torch.cat(copy_train_rank_unf)
+            gen_train_rank_unf = torch.cat(gen_train_rank_unf)
+        if args.copy > 0:
+            print('\ttrain raw MRR:      {:.4f} (gen) {:.4f} (copy)'.format(mrr(gen_train_rank_unf), mrr(copy_train_rank_unf)))
+        else:
+            print('\ttrain raw MRR:      {:.4f}'.format(mrr(gen_train_rank_unf)))
         print('\tvalid raw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
         print('\tvalid filtered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
         if mrr(total_rank_fil) > max_mrr:

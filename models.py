@@ -187,9 +187,11 @@ class FixStepAttentionModel(torch.nn.Module):
         mods['subject_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
         self.loss_fn = nn.NLLLoss(reduction='mean')
-        self.loss_fn = nn.NLLLoss(reduction='mean')
-        self.loss_fn = nn.NLLLoss(reduction='mean')
+        self.gen_loss_fn = nn.CrossEntropyLoss(reduction='mean')
+        self.copy_loss_fn = nn.CrossEntropyLoss(reduction='mean')
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        self.gen_optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        self.copy_optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
     def forward(self, hid, sub, obj, rel, copy_mask=None):
         sub_rel_emb = self.mods['subject_relation_emb'](rel)
@@ -213,8 +215,39 @@ class FixStepAttentionModel(torch.nn.Module):
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
 
-    # def step_gen(self, hid, sub, obj, rel, filter_mask=None, copy_mask=None, train=True):
+    def step_gen(self, hid, sub, obj, rel):
+        self.gen_optimizer.zero_grad()
+        sub_rel_emb = self.mods['subject_relation_emb'](rel)
+        obj_rel_emb = self.mods['object_relation_emb'](rel)
+        adj = self.mods['attention'](self.mods['norm_0'](hid))
+        for l in range(self.num_l):
+            hid = self.mods['norm_' + str(l)](hid)
+            hid = self.mods['att_' + str(l)](hid, adj)
+        sub_emb = hid[sub]
+        obj_emb = hid[obj]
+        sub_pre = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
+        obj_pre = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
+        pre = torch.cat([sub_pre, obj_pre])
+        tru = torch.cat([sub, obj])
+        loss = self.gen_loss_fn(pre, tru)
+        loss.backward()
+        self.gen_optimizer.step()
+        pre_thres = pre.gather(1,tru.unsqueeze(1))
+        return get_rank(pre, pre_thres)
 
+    def step_copy(self, hid, sub, obj, rel, copy_mask):
+        self.copy_optimizer.zero_grad()
+        sub_rel_emb = self.mods['subject_relation_emb'](rel)
+        obj_rel_emb = self.mods['object_relation_emb'](rel)
+        copy_hid = hid[:,-self.copy_dim:]
+        copy_sub_pre, copy_obj_pre = self.mods['copy'](copy_hid[sub], copy_hid[obj], sub_rel_emb, obj_rel_emb, copy_mask)
+        pre = torch.cat([copy_sub_pre, copy_obj_pre])
+        tru = torch.cat([sub, obj])
+        loss = self.copy_loss_fn(pre, tru)
+        loss.backward()
+        self.copy_optimizer.step()
+        pre_thres = pre.gather(1,tru.unsqueeze(1))
+        return get_rank(pre, pre_thres)
 
     def step(self, hid, sub, obj, rel, filter_mask=None, copy_mask=None, train=True):
         if train:
