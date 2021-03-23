@@ -1,7 +1,8 @@
 import torch
 import numpy as np
-from events import Events
 import dgl
+import matplotlib.pyplot as plt
+from events import Events
 
 def add_virtual_relation(e, nume, numr):
     # add a virtual node that have all relationship because dgl.heterograph does not support add edge types
@@ -27,3 +28,14 @@ def extract_emb(ent_emb, history, ts):
         h.append(ent_emb[ts - t])
     h = torch.cat(h, dim=1)
     return h
+
+def plot_and_save(fil, unf):
+    fix, (ax1, ax2) = plt.subplots(1, 2)
+    x = np.linspace(0, 1, 101)
+    ax1.plot(x, unf)
+    ax1.set_title('Raw MRR')
+    ax1.set_xlabel('Copy Ratio')
+    ax2.plot(x, fil)
+    ax2.set_title('Filtered MRR')
+    ax2.set_xlabel('Copy Ratio')
+    plt.savefig('copy_ratio.png', dpi=1000)

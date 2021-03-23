@@ -15,6 +15,7 @@ parser.add_argument('--store_result', type=str, default='', help='store the resu
 parser.add_argument('--force_step', type=int, default=0, help='forced step length, only used in single network')
 parser.add_argument('--batch_size', type=int, default=2048, help='batch size used in training')
 parser.add_argument('--copy', type=float, default=0, help='alpha of the copy module, see AAAI 21 learning from history paper')
+parser.add_argument('--plot_copy', default=0, action='store_true', help='whether to plot the alpha copy ratio v.s. accuracy')
 args = parser.parse_args()
 
 import os
@@ -48,7 +49,6 @@ if args.network_type == 'single':
     model = FixStepAttentionModel(dim_in, args.dim, obj_rel_emb.shape[1], ent_emb.shape[1], sub_rel_emb, obj_rel_emb, dropout=args.dropout, h_att=args.attention_head, num_l=args.layer, lr=args.lr, copy=args.copy, copy_dim=ent_emb.shape[2]).cuda()
     max_mrr = 0
     max_e = 0
-
     for e in range(args.epoch):
         torch.cuda.empty_cache()
         print('epoch {:d}:'.format(e))
@@ -112,6 +112,9 @@ if args.network_type == 'single':
         print(colorama.Fore.RED + 'Loading epoch {:d} with filtered MRR {:.4f}'.format(max_e, max_mrr) + colorama.Style.RESET_ALL)
         model.load_state_dict(torch.load(save_path))
     rank_fil_l = list()
+    if args.plot_copy:
+        alpha_fil = np.zeros(101)
+        alpha_unf = np.zeros(101)
     with tqdm(total=data.ts_test) as pbar:
         with torch.no_grad():
             total_rank_unf = list()
@@ -121,6 +124,10 @@ if args.network_type == 'single':
                 if args.copy > 0:
                     batches = data.get_batches(ts, -1, require_mask=True, copy_mask_ts=max_step)
                     loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
+                    if args.plot_copy:
+                        copy_unf, copy_fil = model.step_plot_alpha(hid, batches[0][0], batches[1][0], batches[2][0], filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
+                        alpha_fil += copy_fil
+                        alpha_unf += copy_unf
                 else:
                     batches = data.get_batches(ts, -1, require_mask=True)
                     loss, rank_unf, rank_fil = model.step(hid, batches[0][0], batches[1][0], batches[2][0], batches[3][0], train=False)
@@ -130,6 +137,10 @@ if args.network_type == 'single':
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
+            if args.plot_copy:
+                alpha_fil /= total_rank_fil.shape[0]
+                alpha_unf /= total_rank_unf.shape[0]
+                plot_and_save(alpha_fil, alpha_unf)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
     if args.force_step > 0:

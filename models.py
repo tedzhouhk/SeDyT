@@ -288,3 +288,28 @@ class FixStepAttentionModel(torch.nn.Module):
                 pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
         return loss, rank_unf, rank_fil
+
+    def step_plot_alpha(self, hid, sub, obj, rel, filter_mask=None, copy_mask=None, train=True):
+        self.eval()
+        sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(hid, sub, obj, rel, copy_mask)
+        with torch.no_grad():
+            import numpy as np
+            rankr_raw = list()
+            rankr_fil = list()
+            sub_pre = nn.functional.softmax(sub_pre, dim=1)
+            obj_pre = nn.functional.softmax(obj_pre, dim=1)
+            copy_sub_predict = nn.functional.softmax(copy_sub_predict, dim=1)
+            copy_obj_predict = nn.functional.softmax(copy_obj_predict, dim=1)
+            tru = torch.cat([sub, obj])
+            for alpha in np.linspace(0,1,101):
+                sub_pre_f = sub_pre * (1 - alpha) + copy_sub_predict * alpha
+                obj_pre_f = obj_pre * (1 - alpha) + copy_obj_predict * alpha
+                pre = torch.cat([sub_pre_f, obj_pre_f])
+                pre_thres = pre.gather(1, tru.unsqueeze(1))
+                rank_unf = get_rank(pre, pre_thres)
+                pre[filter_mask[0], filter_mask[1]] = float('-inf')
+                pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
+                rank_fil = get_rank(pre, pre_thres)
+                rankr_raw.append(float(torch.reciprocal(rank_unf.type(torch.float)).sum()))
+                rankr_fil.append(float(torch.reciprocal(rank_fil.type(torch.float)).sum()))
+        return np.array(rankr_raw), np.array(rankr_fil)
