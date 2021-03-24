@@ -2,13 +2,14 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--data', type=str, help='which dataset to use')
 parser.add_argument('--fwd', type=int, default=10, help='how many time stamps forwarded in training')
+parser.add_argument('--history', type=int, default=10, help='how many self history nodes are linked to the nodes at current timestamp')
 parser.add_argument('-e', '--epoch', type=int, default=10, help='number of epochs to train')
-parser.add_argument('--dim', type=int, default=128, help='dimension of hidden features')
-parser.add_argument('--dim_e', type=int, default=128, help='dimension of entity attributes')
-parser.add_argument('--dim_r', type=int, default=128, help='dimension of relation attributes')
-parser.add_argument('--dim_t', type=int, default=0, help='dimension for time encoding, 0 for no time encoding')
+parser.add_argument('--dim', type=int, default=200, help='dimension of hidden features')
+parser.add_argument('--dim_e', type=int, default=200, help='dimension of entity attributes')
+parser.add_argument('--dim_r', type=int, default=200, help='dimension of relation attributes')
+parser.add_argument('--dim_t', type=int, default=100, help='dimension for time encoding, 0 for no time encoding')
 parser.add_argument('--dropout', type=float, help='dropout rate')
-parser.add_argument('--lr', type=float, default=0.01,help='learning rate')
+parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=1024, help='batch size used in training')
 parser.add_argument('--gpu', type=int, default=0, help='which gpu to use')
 parser.add_argument('--verbose', default=0, action='store_true', help='whether to prinmt verbose output')
@@ -28,7 +29,7 @@ from models import *
 
 data = Events(args.data)
 
-model = PreTrainModel(args.dim_e, args.dim, args.dim_r, data.num_relation, data.num_entity, args.dropout, dim_t = args.dim_t).cuda()
+model = PreTrainModel(args.dim_e, args.dim, args.dim_r, args.dim_t, data.num_relation, data.num_entity, args.dropout).cuda()
 
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -42,11 +43,11 @@ for e in range(args.epoch):
     t_grap = 0
     with tqdm(total=data.ts_train + data.ts_val) as pbar:
         for ts in range(0, data.ts_train):
-            event_dict = data.get_hetero_dict(ts)
+            event_dict = data.get_hetero_dict(ts, args.history)
             if ts < args.fwd:
                 if g is None:
                     add_virtual_relation(event_dict, data.num_entity, data.num_relation)
-                    g = dgl.heterograph(event_dict).to('cuda:0')
+                    g = dgl.heterograph(event_dict)
                     g.remove_nodes(data.num_entity, 'entity')
                 else:
                     add_edges_from_dict(g, event_dict)
@@ -74,20 +75,14 @@ for e in range(args.epoch):
         model.eval()
         with torch.no_grad():
             for ts in range(data.ts_train, data.ts_train + data.ts_val):
-                event_dict = data.get_hetero_dict(ts)
+                event_dict = data.get_hetero_dict(ts, args.history)
                 batches = data.get_batches(ts, args.batch_size)
                 for sub, obj, rel, mask in zip(batches[0], batches[1], batches[2], batches[3]):
-                    # optimizer.zero_grad()
                     t_s = time.time()
                     loss, rank_unf, rank_fil = model.forward_and_loss(sub, obj, rel, g, ts, mask)
                     t_forw += time.time() - t_s
-                    # t_s = time.time()
-                    # loss.backward()
-                    # optimizer.step()
-                    # t_back += time.time() - t_s
                     total_rank_unf.append(rank_unf.detach().clone())
                     total_rank_fil.append(rank_fil.detach().clone())
-                    # print(mrr(total_rank_fil[-1]))
                 add_edges_from_dict(g, event_dict)
                 pbar.update(1)
     with torch.no_grad():
@@ -108,24 +103,24 @@ with torch.no_grad():
     model.eval()
     with tqdm(total=data.ts_train + data.ts_val + data.ts_test) as pbar:
         for ts in range(0, data.ts_train):
-            event_dict = data.get_hetero_dict(ts)
+            event_dict = data.get_hetero_dict(ts, args.history)
             if g is None:
                 add_virtual_relation(event_dict, data.num_entity, data.num_relation)
                 g = dgl.heterograph(event_dict).to('cuda:0')
                 g.remove_nodes(data.num_entity, 'entity')
             else:
                 add_edges_from_dict(g, event_dict)
-            entity_emb.append(model.get_entity_embedding(g).clone().detach().cpu())
+            entity_emb.append(model.get_entity_embedding(g, ts, args.batch_size).clone().detach().cpu())
             pbar.update(1)
         for ts in range(data.ts_train, data.ts_train + data.ts_val):
-            event_dict = data.get_hetero_dict(ts)
+            event_dict = data.get_hetero_dict(ts, args.history)
             add_edges_from_dict(g, event_dict)
-            entity_emb.append(model.get_entity_embedding(g).clone().detach().cpu())
+            entity_emb.append(model.get_entity_embedding(g, ts, args.batch_size).clone().detach().cpu())
             pbar.update(1)
         for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
-            event_dict = data.get_hetero_dict(ts)
+            event_dict = data.get_hetero_dict(ts, args.history)
             add_edges_from_dict(g, event_dict)
-            entity_emb.append(model.get_entity_embedding(g).clone().detach().cpu())
+            entity_emb.append(model.get_entity_embedding(g, ts, args.batch_size).clone().detach().cpu())
             pbar.update(1)
     entity_emb = torch.stack(entity_emb)
     if not os.path.isdir('data'):

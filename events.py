@@ -104,13 +104,19 @@ class Events:
             events = self.train_events[ts]
         return events
 
-    def get_hetero_dict(self, ts):
+    def get_hetero_dict(self, ts, h):
         # get dict of events happens at time ts
+        h = min(ts, h)
         events = self.get_events(ts)
         event_dict = defaultdict(lambda: list())
+        offset = ts * self.num_entity
         for s, r, o, _ in events:
-            event_dict[('entity', 'r' + str(r), 'entity')].append((s, o))
-            event_dict[('entity', '-r' + str(r), 'entity')].append((o, s))
+            event_dict[('entity', 'r' + str(r), 'entity')].append((s + offset, o + offset))
+            event_dict[('entity', '-r' + str(r), 'entity')].append((o + offset, s + offset))
+        for e in range(self.num_entity):
+            for i in range(1, h + 1):
+                h_offset = i * self.num_entity
+                event_dict[('entity', 'self', 'entity')].append((e + offset - h_offset, e + offset))
         return event_dict
     
     def update_copy_mask(self, ts):

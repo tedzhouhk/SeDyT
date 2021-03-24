@@ -27,67 +27,98 @@ class Perceptron(torch.nn.Module):
             f_in = self.norm(f_in)
         return f_in
 
+class TimeEnc(nn.Module):
+    # generate time encoding (TGAT, ICLR'21) from node number (nid)
+
+    def __init__(self, dim_t, nume):
+        super(TimeEnc, self).__init__()
+        self.dim_t = dim_t
+        self.nume = nume
+        self.basis_freq = torch.nn.Parameter((torch.from_numpy(1 / 10 ** np.linspace(0, 9, self.dim_t))).float())
+        self.phase = torch.nn.Parameter(torch.zeros(self.dim_t).float())
+
+    def forward(self, nid, ts):
+        t = ts - (nid // self.nume)
+        t = t.view(-1, 1) * self.basis_freq + self.phase
+        return torch.cos(t)
+
 class PreTrainModel(nn.Module):
     # model for pre-training
 
-    def __init__(self, dim_in, dim_out, dim_r, numr, nume, dropout=0, deepth=2, dim_t=0):
+    def __init__(self, dim_in, dim_out, dim_r, dim_t, numr, nume, dropout=0, deepth=2):
         super(PreTrainModel, self).__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
         self.dim_r = dim_r
+        self.dim_t = dim_t
         self.numr = numr
         self.nume = nume
         self.deepth = deepth
         self.enc_time = False
         mods = dict()
+        mods['time_enc'] = TimeEnc(dim_t, nume)
         mods['entity_emb'] = nn.Embedding(nume, dim_in)
         mods['subject_relation_emb'] = nn.Embedding(numr, dim_r)
         mods['object_relation_emb'] = nn.Embedding(numr, dim_r)
-        if dim_t > 0:
-            mods['time_emb'] = nn.Embedding(dim_t, 1)
-            self.enc_time = True
-            self.dim_t = dim_t
         for l in range(self.deepth):
             # mods['norm' + str(l)] = nn.LayerNorm(dim_in)
             conv_dict = dict()
             for r in range(self.numr):
-                conv_dict['r' + str(r)] = dglnn.GraphConv(dim_in, dim_out)
-                conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in, dim_out)
+                conv_dict['r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
+                conv_dict['-r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
+                conv_dict['self'] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
+                # conv_dict['r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
+                # conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
+                # conv_dict['self'] = dglnn.GraphConv(dim_in + dim_t, dim_out)
             mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict,aggregate='mean')
             mods['dropout' + str(l)] = nn.Dropout(dropout)
-            mods['act' + str(l)] = nn.Identity()
+            mods['act' + str(l)] = nn.ReLU()
             dim_in = dim_out
-        mods['object_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False, dropout=dropout)
-        mods['subject_classifier'] = Perceptron(dim_out + dim_r + dim_t, nume, act=False, dropout=dropout)
+        mods['object_classifier'] = Perceptron(dim_out + dim_r, nume, act=False, dropout=dropout)
+        mods['subject_classifier'] = Perceptron(dim_out + dim_r, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
+        self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.deepth)
         self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
 
     def forward(self, sub, obj, rel, g, ts):
-        h = self.mods['entity_emb'].weight
+        # in training, use the embedding of the nodes in the last timestamp to make prediction
+        ts -= 1
+        offset = ts * self.nume
+        root = torch.cat([sub + offset, obj + offset]).cpu()
+        # dgl sampler need input to be unique (not sure if sorted is required)
+        root, root_idx = torch.unique(root, sorted=True, return_inverse=True)
+        blocks = self.sampler.sample_blocks(g, root)
+        blk = [blk.to('cuda:0') for blk in blocks]
+        h = self.mods['entity_emb'](torch.remainder(blk[0].srcdata['_ID'], self.nume))
         for l in range(self.deepth):
-            # h = self.mods['norm' + str(l)](h)
-            h = self.mods['conv' + str(l)](g, {'entity': h})['entity']
+            phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts)
+            h = torch.cat([h, phi], dim=1)
+            h = self.mods['conv' + str(l)](blk[l], {'entity': h})['entity']
+            h = h.view(h.shape[0], -1)
             h = self.mods['act' + str(l)](h)
             h = self.mods['dropout' + str(l)](h)
-        sub_emb = h[sub]
-        obj_emb = h[obj]
+        sub_emb = h[root_idx][:sub.shape[0]]
+        obj_emb = h[root_idx][sub.shape[0]:]
         sub_rel_emb = self.mods['subject_relation_emb'](rel)
         obj_rel_emb = self.mods['object_relation_emb'](rel)
-        if not self.enc_time:
-            sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
-            obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
-        else:
-            time_emb = (self.mods['time_emb'].weight.squeeze() * ts).expand(obj_emb.shape[0], self.dim_t)
-            sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb, time_emb], 1))
-            obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb, time_emb], 1))
+        sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
+        obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         return sub_predict, obj_predict
     
-    def get_entity_embedding(self, g):
-        h = self.mods['entity_emb'].weight
-        for l in range(self.deepth):
-            h = self.mods['conv' + str(l)](g, {'entity': h})['entity']
-            h = self.mods['dropout' + str(l)](h)
-        return h
+    def get_entity_embedding(self, g, ts, bs):
+        ans = list()
+        roots = np.array_split(np.arange(self.nume), self.nume // bs)
+        for root in roots:
+            blocks = self.sampler.sample_blocks(g, root + ts * self.nume)
+            blk = [blk.to('cuda:0') for blk in blocks]
+            h = self.mods['entity_emb'](torch.remainder(blk[0].srcdata['_ID'], self.nume))
+            for l in range(self.deepth):
+                phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts)
+                h = torch.cat([h, phi], dim=1)
+                h = self.mods['conv' + str(l)](blk[l], {'entity': h})['entity']
+                h = self.mods['act' + str(l)](h)
+            ans.append(h)
+        return torch.cat(ans, dim=0)
 
     def forward_and_loss(self, sub, obj, rel, g, ts, filter_mask=None):
         sub_pre, obj_pre = self.forward(sub, obj, rel, g, ts)
