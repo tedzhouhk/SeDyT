@@ -1,5 +1,6 @@
 import dgl
 import torch
+import math
 import numpy as np
 import dgl.nn.pytorch as dglnn
 import torch.nn as nn
@@ -14,6 +15,7 @@ class Perceptron(torch.nn.Module):
         torch.nn.init.xavier_uniform_(self.weight.data)
         self.bias = torch.nn.Parameter(torch.empty(out_dim))
         torch.nn.init.zeros_(self.bias.data)
+        self.norm = norm
         if norm:
             self.norm = torch.nn.BatchNorm1d(out_dim, eps=1e-9, track_running_stats=True)
         self.dropout = torch.nn.Dropout(dropout)
@@ -24,6 +26,7 @@ class Perceptron(torch.nn.Module):
         f_in = torch.mm(f_in, self.weight) + self.bias
         if self.act:
             f_in = torch.nn.functional.relu(f_in)
+        if self.norm:
             f_in = self.norm(f_in)
         return f_in
 
@@ -171,10 +174,13 @@ class Attention(torch.nn.Module):
     
     def forward(self, hid):
         out = list()
+        # trick from Transformer paper: to avoid gradient vanishing.
+        # var_norm = math.sqrt(self.mods['w_k_0'].weight.shape[-1])
         for h in range(self.h_att):
             q = self.mods['w_q_' + str(h)](hid)
             k = self.mods['w_q_' + str(h)](hid)
-            out.append(self.mods['softmax' + str(h)](torch.matmul(q, k.T)))
+            out.append(self.mods['softmax' + str(h)](torch.matmul(q, torch.transpose(k, -1, -2))))
+            # out.append(self.mods['softmax' + str(h)](torch.matmul(q, torch.transpose(k, -1, -2)) / var_norm))
         return out
 
 class Copy(torch.nn.Module):
@@ -195,6 +201,32 @@ class Copy(torch.nn.Module):
         masked_predict[copy_mask[0], copy_mask[1]] = raw_predict[copy_mask[0], copy_mask[1]]
         return masked_predict[:masked_predict.shape[0]//2], masked_predict[masked_predict.shape[0]//2:]
 
+class SelfAttention(torch.nn.Module):
+    
+    def __init__(self, in_dim, emb_dim, h_att=8, dropout=0):
+        # in dim = number of embeddings x emb_dim
+        # out dim = in dim
+        super(SelfAttention, self).__init__()
+        self.emb_dim = emb_dim
+        self.in_dim = in_dim
+        self.h_att = h_att
+        mods = dict()
+        mods['attention'] = Attention(emb_dim, emb_dim, h_att=h_att)
+        for h in range(h_att):
+            mods['dropout' + str(h)] = nn.Dropout(p=dropout)
+            mods['w_v_' + str(h)] = nn.Linear(emb_dim, emb_dim // h_att)
+        self.mods = nn.ModuleDict(mods)
+
+    def forward(self, hid):
+        hid = hid.view(hid.shape[0], -1, self.emb_dim)
+        att = self.mods['attention'](hid)
+        ans = list()
+        for h in range(self.h_att):
+            hidd = self.mods['dropout' + str(h)](hid)
+            v = self.mods['w_v_' + str(h)](hidd)
+            ans.append(torch.matmul(att[h], v))
+        ans = torch.cat(ans, dim=-1)
+        return torch.nn.functional.relu(ans).view(ans.shape[0], -1)
 
 class FixStepAttentionModel(torch.nn.Module):
 
@@ -203,6 +235,7 @@ class FixStepAttentionModel(torch.nn.Module):
         self.num_l = num_l
         self.copy = copy
         self.copy_dim = copy_dim
+        self.history_length = in_dim // copy_dim
         mods = dict()
         if self.copy > 0:
             mods['copy'] = Copy(copy_dim, dim_r, nume, dropout=dropout)
@@ -213,6 +246,8 @@ class FixStepAttentionModel(torch.nn.Module):
         for l in range(num_l):
             mods['norm_' + str(l)] = nn.LayerNorm(in_dim)
             mods['att_' + str(l)] = AttentionLayer(in_dim, out_dim, dropout=dropout, h_att=h_att)
+            mods['selfatt_' + str(l)] = SelfAttention(in_dim, in_dim // self.history_length, h_att=h_att, dropout=dropout)
+            mods['dense_'+str(l)] = Perceptron(in_dim, out_dim, dropout=dropout, act=True)
             in_dim = out_dim
         mods['object_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
         mods['subject_classifier'] = Perceptron(out_dim + dim_r, nume, act=False, dropout=dropout)
@@ -223,6 +258,15 @@ class FixStepAttentionModel(torch.nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         self.gen_optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         self.copy_optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+    
+    def get_embedding(self, hid):
+        # adj = self.mods['attention'](self.mods['norm_0'](hid))
+        for l in range(self.num_l):
+            hid = self.mods['norm_' + str(l)](hid)
+            # hid = self.mods['att_' + str(l)](hid, adj)
+            hid = self.mods['selfatt_' + str(l)](hid)
+            hid = self.mods['dense_' + str(l)](hid)
+        return hid
 
     def forward(self, hid, sub, obj, rel, copy_mask=None):
         sub_rel_emb = self.mods['subject_relation_emb'](rel)
@@ -232,14 +276,7 @@ class FixStepAttentionModel(torch.nn.Module):
         if self.copy > 0:
             copy_hid = hid[:,-self.copy_dim:]
             copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[sub], copy_hid[obj], sub_rel_emb, obj_rel_emb, copy_mask)
-        # h = [hid]
-        adj = self.mods['attention'](self.mods['norm_0'](hid))
-        for l in range(self.num_l):
-            hid = self.mods['norm_' + str(l)](hid)
-            hid = self.mods['att_' + str(l)](hid, adj)
-        #     h.append(hid)
-        # h = torch.cat(h, 1)
-        # hid = self.mods['dense'](h)
+        hid = self.get_embedding(hid)
         sub_emb = hid[sub]
         obj_emb = hid[obj]
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
@@ -250,10 +287,7 @@ class FixStepAttentionModel(torch.nn.Module):
         self.gen_optimizer.zero_grad()
         sub_rel_emb = self.mods['subject_relation_emb'](rel)
         obj_rel_emb = self.mods['object_relation_emb'](rel)
-        adj = self.mods['attention'](self.mods['norm_0'](hid))
-        for l in range(self.num_l):
-            hid = self.mods['norm_' + str(l)](hid)
-            hid = self.mods['att_' + str(l)](hid, adj)
+        hid = self.get_embedding(hid)
         sub_emb = hid[sub]
         obj_emb = hid[obj]
         sub_pre = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))

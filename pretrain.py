@@ -95,6 +95,7 @@ for e in range(args.epoch):
     
 print('Optimization finished!')
 print('Generating entity and relation embeddings...')
+torch.save(model.state_dict(), 'data/' + args.data + '/model.pt')
 with torch.no_grad():
     sub_rel_emb = model.mods['subject_relation_emb'].weight.clone().detach().cpu()
     obj_rel_emb = model.mods['object_relation_emb'].weight.clone().detach().cpu()
@@ -106,7 +107,7 @@ with torch.no_grad():
             event_dict = data.get_hetero_dict(ts, args.history)
             if g is None:
                 add_virtual_relation(event_dict, data.num_entity, data.num_relation)
-                g = dgl.heterograph(event_dict).to('cuda:0')
+                g = dgl.heterograph(event_dict)
                 g.remove_nodes(data.num_entity, 'entity')
             else:
                 add_edges_from_dict(g, event_dict)
