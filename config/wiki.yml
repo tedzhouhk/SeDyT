@@ -2,7 +2,7 @@ emb-net:
   - dim: 200
     dim_e: 200
     dim_t: 100
-    history: 10
+    history: 5
     layer: 2
 gen-net:
   - dim_r: 200

@@ -102,6 +102,40 @@ for e in range(train_conf['epoch']):
         max_mrr = mrr(total_rank_fil)
         max_e = e
         torch.save(model.state_dict(), save_path)
+
+    # for quicker debugging
+    rank_fil_l = list()
+    with tqdm(total=data.ts_test) as pbar:
+        with torch.no_grad():
+            total_rank_unf = list()
+            total_rank_fil = list()
+            for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
+                rank_unf_e = list()
+                rank_fil_e = list()
+                if gen_conf['copy'] > 0:
+                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
+                    for b in range(len(batches[0])):
+                        loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
+                        rank_unf_e.append(rank_unf)
+                        rank_fil_e.append(rank_fil)
+                else:
+                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
+                    for b in range(len(batches[0])):
+                        loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], train=False)
+                        rank_unf_e.append(rank_unf)
+                        rank_fil_e.append(rank_fil)
+                rank_unf_e = torch.cat(rank_unf_e)
+                rank_fil_e = torch.cat(rank_fil_e)
+                total_rank_unf.append(rank_unf_e.cpu())
+                total_rank_fil.append(rank_fil_e.cpu())
+                rank_fil_l.append(mrr(total_rank_fil[-1]))
+                pbar.update(1)
+            total_rank_unf = torch.cat(total_rank_unf)
+            total_rank_fil = torch.cat(total_rank_fil)
+    print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
+    print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
+
+
 # testing
 print(colorama.Fore.RED + 'Testing...'+ colorama.Style.RESET_ALL)
 if max_e > 0:

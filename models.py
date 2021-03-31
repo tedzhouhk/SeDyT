@@ -141,14 +141,18 @@ class Attention(torch.nn.Module):
 class Copy(torch.nn.Module):
     # copy module used in AAAI'21 Learning from History: Modeling Temporal Knowledge Graphs with Sequential Copy-Generation Networks
 
-    def __init__(self, in_dim, dim_r, nume, dropout=0):
+    def __init__(self, in_dim, dim_r, nume, numr, dropout=0):
         super(Copy, self).__init__()
         mods = dict()
+        mods['subject_relation_emb'] = nn.Embedding(numr, dim_r)
+        mods['object_relation_emb'] = nn.Embedding(numr, dim_r)
         mods['object_classifier'] = Perceptron(in_dim + dim_r, nume, act=False, dropout=dropout)
         mods['subject_classifier'] = Perceptron(in_dim + dim_r, nume, act=False, dropout=dropout)
         self.mods = nn.ModuleDict(mods)
     
-    def forward(self, sub_emb, obj_emb, sub_rel_emb, obj_rel_emb, copy_mask):
+    def forward(self, sub_emb, obj_emb, rel, copy_mask):
+        sub_rel_emb = self.mods['subject_relation_emb'](rel)
+        obj_rel_emb = self.mods['object_relation_emb'](rel)
         raw_sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         raw_obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         masked_predict = torch.tensor([-100.0]).cuda().repeat(raw_sub_predict.shape[0] * 2, raw_sub_predict.shape[1])
@@ -198,7 +202,7 @@ class FixStepModel(torch.nn.Module):
         mods = dict()
         mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'])
         if self.copy > 0:
-            mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, dropout=train_conf['dropout'])
+            mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, numr, dropout=train_conf['dropout'])
         mods['subject_relation_emb'] = nn.Embedding(numr, gen_conf['dim_r'])
         mods['object_relation_emb'] = nn.Embedding(numr, gen_conf['dim_r'])
         in_dim = emb_conf['dim'] * self.gen_hist.shape[0]
@@ -214,23 +218,26 @@ class FixStepModel(torch.nn.Module):
         mods['object_classifier'] = Perceptron(out_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
         mods['subject_classifier'] = Perceptron(out_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
         self.mods = nn.ModuleDict(mods)
-        self.loss_fn = nn.NLLLoss(reduction='mean')
+        self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
+        self.copy_loss_fn = nn.CrossEntropyLoss(reduction='mean')
         self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'])
+        self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'])
     
     def forward(self, sub, obj, rel, ts, copy_mask=None):
         hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts)
-        sub_rel_emb = self.mods['subject_relation_emb'](rel)
-        obj_rel_emb = self.mods['object_relation_emb'](rel)
         copy_sub_predict = None
         copy_obj_predict = None
         if self.copy > 0:
-            copy_hid = hid[:,-self.emb_dim:]
-            copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[:sub.shape[0]], copy_hid[sub.shape[0]:], sub_rel_emb, obj_rel_emb, copy_mask)
+            copy_hid = hid[:, -self.emb_dim:]
+            # only propagate gradients within the copy module
+            copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[:sub.shape[0]].detach(), copy_hid[sub.shape[0]:].detach(), rel, copy_mask)
         for l in range(self.gen_l):
             hid = self.mods['norm_' + str(l)](hid)
             hid = self.mods['layer_' + str(l)](hid)
         sub_emb = hid[:sub.shape[0]]
         obj_emb = hid[sub.shape[0]:]
+        sub_rel_emb = self.mods['subject_relation_emb'](rel)
+        obj_rel_emb = self.mods['object_relation_emb'](rel)
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
@@ -239,9 +246,21 @@ class FixStepModel(torch.nn.Module):
         if train:
             self.train()
             self.optimizer.zero_grad()
+            self.copy_optimizer.zero_grad()
         else:
             self.eval()
         sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(sub, obj, rel, ts, copy_mask)
+        tru = torch.cat([sub, obj])
+        # seperate copy and gen loss to avoid large copy ratio lead to small gradients in gen
+        gen_pre = torch.cat([sub_pre, obj_pre])
+        copy_pre = torch.cat([copy_sub_predict, copy_obj_predict])
+        gen_loss = self.loss_fn(gen_pre, tru)
+        copy_loss = self.copy_loss_fn(copy_pre, tru)
+        if train:
+            gen_loss.backward()
+            copy_loss.backward()
+            self.optimizer.step()
+            self.copy_optimizer.step()
         sub_pre = nn.functional.softmax(sub_pre, dim=1)
         obj_pre = nn.functional.softmax(obj_pre, dim=1)
         if self.copy > 0:
@@ -255,14 +274,6 @@ class FixStepModel(torch.nn.Module):
                 sub_pre = copy_sub_predict
                 obj_pre = copy_obj_predict
         pre = torch.cat([sub_pre, obj_pre])
-        # to avoid log of zero
-        # pre_log = torch.log(pre)
-        pre_log = torch.log(pre + 1e-7)
-        tru = torch.cat([sub, obj])
-        loss = self.loss_fn(pre_log, tru)
-        if train:
-            loss.backward()
-            self.optimizer.step()
         with torch.no_grad():
             pre = pre.clone().detach()
             tru = tru.clone().detach()
@@ -273,4 +284,4 @@ class FixStepModel(torch.nn.Module):
                 pre[filter_mask[0], filter_mask[1]] = float('-inf')
                 pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
-        return loss, rank_unf, rank_fil
+        return copy_loss + gen_loss, rank_unf, rank_fil
