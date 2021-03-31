@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import dgl
+import yaml
 import matplotlib.pyplot as plt
 from events import Events
 
@@ -39,3 +40,8 @@ def plot_and_save(fil, unf):
     ax2.set_title('Filtered MRR')
     ax2.set_xlabel('Copy Ratio')
     plt.savefig('copy_ratio.png', dpi=1000)
+
+def parse_train_config(f):
+    with open(f) as tf:
+        tc = yaml.load(tf)
+    return tc['emb-net'][0], tc['gen-net'][0], tc['train'][0]
