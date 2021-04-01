@@ -1,6 +1,7 @@
 import dgl
 import torch
 import math
+import time
 import numpy as np
 import dgl.nn.pytorch as dglnn
 import torch.nn as nn
@@ -77,13 +78,17 @@ class EmbModule(nn.Module):
         self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.deepth)
 
     def forward(self, ent, hist_ts, ts):
+        ts = time.time()
         offset = hist_ts * self.nume
         ent = ent.repeat_interleave(offset.shape[0]).view(ent.shape[0], -1).cpu()
         root = torch.flatten(ent + offset)
         # dgl sampler need input to be unique
         root, root_idx = torch.unique(root, sorted=True, return_inverse=True)
         blocks = self.sampler.sample_blocks(self.g, root)
+        print('\tsupport nodes ' + str(blocks[0].srcdata['_ID'].shape[0]))
         blk = [blk.to('cuda:0') for blk in blocks]
+        get_writer().add_scalar('time_sampling', time.time() - ts, get_global_step('time_sampling'))
+        ts = time.time()
         h = self.mods['entity_emb'](torch.remainder(blk[0].srcdata['_ID'], self.nume))
         for l in range(self.deepth):
             phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts)
@@ -93,6 +98,7 @@ class EmbModule(nn.Module):
             h = self.mods['act' + str(l)](h)
             h = self.mods['dropout' + str(l)](h)
         h = h[root_idx].view(-1, offset.shape[0], h.shape[-1])
+        get_writer().add_scalar('time_emb', time.time() - ts, get_global_step('time_emb'))
         return h.view(h.shape[0], -1)
     
 class AttentionLayer(torch.nn.Module):
@@ -225,6 +231,7 @@ class FixStepModel(torch.nn.Module):
     
     def forward(self, sub, obj, rel, ts, copy_mask=None):
         hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts)
+        ts = time.time()
         copy_sub_predict = None
         copy_obj_predict = None
         if self.copy > 0:
@@ -240,6 +247,7 @@ class FixStepModel(torch.nn.Module):
         obj_rel_emb = self.mods['object_relation_emb'](rel)
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
+        get_writer().add_scalar('time_gen', time.time() - ts, get_global_step('time_gen'))
         return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
 
     def step(self, sub, obj, rel, ts, filter_mask=None, copy_mask=None, train=True):
@@ -266,13 +274,8 @@ class FixStepModel(torch.nn.Module):
         if self.copy > 0:
             copy_sub_predict = nn.functional.softmax(copy_sub_predict, dim=1)
             copy_obj_predict = nn.functional.softmax(copy_obj_predict, dim=1)
-            if self.copy != 1:
-                sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
-                obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
-            else:
-                # avoid 0 coefficient in back propagation
-                sub_pre = copy_sub_predict
-                obj_pre = copy_obj_predict
+            sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
+            obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
         pre = torch.cat([sub_pre, obj_pre])
         with torch.no_grad():
             pre = pre.clone().detach()

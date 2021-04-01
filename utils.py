@@ -2,8 +2,29 @@ import torch
 import numpy as np
 import dgl
 import yaml
+import os
 import matplotlib.pyplot as plt
+from collections import defaultdict
 from events import Events
+from torch.utils.tensorboard import SummaryWriter
+
+writer = None
+step_dict = defaultdict(int)
+
+def set_writer(comments):
+    global writer
+    if not os.path.isdir('models'):
+        os.mkdir('runs')
+    writer = SummaryWriter('runs/' + comments)
+
+def get_writer():
+    return writer
+
+def get_global_step(s):
+    global step_dict
+    ans = step_dict[s]
+    step_dict[s] += 1
+    return ans
 
 def add_virtual_relation(e, nume, numr):
     # add a virtual node that have all relationship because dgl.heterograph does not support add edge types

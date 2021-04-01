@@ -29,6 +29,8 @@ if not os.path.isdir('models'):
 save_path = 'models/' + args.data + str(datetime.datetime.now())[:19] + '.pkl'
 
 emb_conf, gen_conf, train_conf = parse_train_config(args.config)
+set_writer(str(datetime.datetime.now())[:19].replace(' ', '') + 'LR{:.4f}DR{:.1f}'.format(train_conf['lr'], train_conf['dropout']))
+
 max_history = max([int(h) for h in gen_conf['history'].split(' ')])
 
 # generate graph, here we build the full graph because a node at time t will only aggregate from neighbors in the past
@@ -62,22 +64,28 @@ for e in range(train_conf['epoch']):
     print('epoch {:d}:'.format(e))
     with tqdm(total=data.ts_train + data.ts_val - train_conf['fwd'] - max_history - max_step) as pbar:
         # training
+        train_loss = 0
         train_rank_unf = list()
         for ts in range(train_conf['fwd'] + max_history + max_step, data.ts_train):
             if gen_conf['copy'] > 0:
                 batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=max_step)
                 for b in range(len(batches[0])):
-                    _, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True)
+                    ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True)
                     with torch.no_grad():
+                        train_loss += ls
                         train_rank_unf.append(rank_unf)
             else:
                 batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False)
                 for b in range(len(batches[0])):
-                    _, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, train=True)
+                    ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, train=True)
                     with torch.no_grad():
+                        train_ls += ls
                         train_rank_unf.append(rank_unf)
             pbar.update(1)
+        get_writer().add_scalar('train_loss', train_loss, get_global_step('train_loss'))
+        
         # validation
+        valid_loss = 0
         total_rank_unf = list()
         total_rank_fil = list()
         with torch.no_grad():
@@ -88,13 +96,17 @@ for e in range(train_conf['epoch']):
                 else:
                     batches = data.get_batches(ts, -1, require_mask=True)
                     loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], train=False)
+                valid_loss += loss
                 total_rank_unf.append(rank_unf)
                 total_rank_fil.append(rank_fil)
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
-    with torch.no_grad():
         train_rank_unf = torch.cat(train_rank_unf)
+    get_writer().add_scalar('valid_loss', valid_loss, get_global_step('valid_loss'))
+    get_writer().add_scalar('train_raw_MRR', mrr(train_rank_unf), get_global_step('train_raw_MRR'))
+    get_writer().add_scalar('valid_raw_MRR', mrr(total_rank_unf), get_global_step('valid_raw_MRR'))
+    get_writer().add_scalar('valid_fil_MRR', mrr(total_rank_fil), get_global_step('valid_fil_MRR'))
     print('\ttrain raw MRR:      {:.4f}'.format(mrr(train_rank_unf)))
     print('\tvalid raw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
     print('\tvalid filtered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
@@ -132,6 +144,8 @@ for e in range(train_conf['epoch']):
                 pbar.update(1)
             total_rank_unf = torch.cat(total_rank_unf)
             total_rank_fil = torch.cat(total_rank_fil)
+    get_writer().add_scalar('test_raw_MRR', mrr(total_rank_unf),get_global_step('test_raw_MRR'))
+    get_writer().add_scalar('test_fil_MRR', mrr(total_rank_fil),get_global_step('test_fil_MRR'))
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
 
