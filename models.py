@@ -48,7 +48,7 @@ class TimeEnc(nn.Module):
 
 class EmbModule(nn.Module):
 
-    def __init__(self, dim_in, dim_out, dim_t, numr, nume, g, dropout=0, deepth=2):
+    def __init__(self, dim_in, dim_out, dim_t, numr, nume, g, dropout=0, deepth=2, sampling=None):
         super(EmbModule, self).__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
@@ -75,7 +75,11 @@ class EmbModule(nn.Module):
             mods['act' + str(l)] = nn.ReLU()
             dim_in = dim_out
         self.mods = nn.ModuleDict(mods)
-        self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.deepth)
+        if sampling is not None:
+            fanouts = [int(d) for d in sampling.split('/')]
+            self.sampler = dgl.dataloading.MultiLayerNeighborSampler(fanouts = fanouts)
+        else:
+            self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.deepth)
 
     def forward(self, ent, hist_ts, ts):
         ts = time.time()
@@ -85,7 +89,7 @@ class EmbModule(nn.Module):
         # dgl sampler need input to be unique
         root, root_idx = torch.unique(root, sorted=True, return_inverse=True)
         blocks = self.sampler.sample_blocks(self.g, root)
-        print('\tsupport nodes ' + str(blocks[0].srcdata['_ID'].shape[0]))
+        # print('\tsupport nodes ' + str(blocks[0].srcdata['_ID'].shape[0]))
         blk = [blk.to('cuda:0') for blk in blocks]
         get_writer().add_scalar('time_sampling', time.time() - ts, get_global_step('time_sampling'))
         ts = time.time()
@@ -163,8 +167,8 @@ class Copy(torch.nn.Module):
         raw_obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         masked_predict = torch.tensor([-100.0]).cuda().repeat(raw_sub_predict.shape[0] * 2, raw_sub_predict.shape[1])
         raw_predict = torch.cat([raw_sub_predict, raw_obj_predict], dim=0)
-        masked_predict[copy_mask[0], copy_mask[1]] = raw_predict[copy_mask[0], copy_mask[1]]
-        return masked_predict[:masked_predict.shape[0]//2], masked_predict[masked_predict.shape[0]//2:]
+        masked_predict[copy_mask] = raw_predict[copy_mask]
+        return masked_predict[:masked_predict.shape[0] // 2], masked_predict[masked_predict.shape[0] // 2:]
 
 class SelfAttention(torch.nn.Module):
     
@@ -206,7 +210,7 @@ class FixStepModel(torch.nn.Module):
         self.gen_hist = torch.tensor([int(x) for x in gen_conf['history'].split()]).cpu()
         self.inf_step = step
         mods = dict()
-        mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'])
+        mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'])
         if self.copy > 0:
             mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, numr, dropout=train_conf['dropout'])
         mods['subject_relation_emb'] = nn.Embedding(numr, gen_conf['dim_r'])
@@ -284,7 +288,7 @@ class FixStepModel(torch.nn.Module):
             rank_unf = get_rank(pre, pre_thres)
             rank_fil = None
             if filter_mask is not None:
-                pre[filter_mask[0], filter_mask[1]] = float('-inf')
+                pre[filter_mask] = float('-inf')
                 pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
-        return copy_loss + gen_loss, rank_unf, rank_fil
+        return gen_loss, rank_unf, rank_fil

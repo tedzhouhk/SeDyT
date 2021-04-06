@@ -2,8 +2,9 @@ emb-net:
   - dim: 200
     dim_e: 200
     dim_t: 100
-    history: 5
-    layer: 2
+    history: 1
+    layer: 1
+    sample: '-1'
 gen-net:
   - dim_r: 200
     arch: 'dense-dense-dense'
@@ -16,4 +17,4 @@ train:
     epoch: 40
     batch_size: 512
     lr: 0.001
-    dropout: 0.2
+    dropout: 0.0
