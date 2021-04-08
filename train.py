@@ -18,6 +18,7 @@ import numpy as np
 from events import Events
 from tqdm import tqdm
 import time
+import random
 import datetime
 from utils import *
 from models import *
@@ -67,6 +68,8 @@ else:
     sweep_range = list(np.linspace(float(args.sweep.split('-')[1]), float(args.sweep.split('-')[2]), int(args.sweep.split('-')[3])))
 
 for sweep_value in sweep_range:
+    if sweep_para == 'fwd':
+        sweep_value = int(sweep_value)
     train_conf[sweep_para] = sweep_value
     model = FixStepModel(emb_conf, gen_conf, train_conf, g, data.num_entity, data.num_relation, max_step).cuda()
     max_mrr = 0
@@ -82,14 +85,14 @@ for sweep_value in sweep_range:
                 if gen_conf['copy'] > 0:
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=max_step)
                     for b in range(len(batches[0])):
-                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True)
+                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True, epoch = e)
                         with torch.no_grad():
                             train_loss += ls
                             train_rank_unf.append(rank_unf)
                 else:
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False)
                     for b in range(len(batches[0])):
-                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, train=True)
+                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, train=True, epoch = e)
                         with torch.no_grad():
                             train_ls += ls
                             train_rank_unf.append(rank_unf)
@@ -107,7 +110,7 @@ for sweep_value in sweep_range:
                     if gen_conf['copy'] > 0:
                         batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
                         for b in range(len(batches[0])):
-                            loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
+                            loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
                             valid_loss += loss
                             rank_unf_e.append(rank_unf)
                             rank_fil_e.append(rank_fil)
@@ -153,13 +156,13 @@ for sweep_value in sweep_range:
                         if gen_conf['copy'] > 0:
                             batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
                             for b in range(len(batches[0])):
-                                loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
+                                loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
                                 rank_unf_e.append(rank_unf)
                                 rank_fil_e.append(rank_fil)
                         else:
                             batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
                             for b in range(len(batches[0])):
-                                loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], train=False)
+                                loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], train=False)
                                 rank_unf_e.append(rank_unf)
                                 rank_fil_e.append(rank_fil)
                         rank_unf_e = torch.cat(rank_unf_e)
@@ -191,13 +194,13 @@ for sweep_value in sweep_range:
                 if gen_conf['copy'] > 0:
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
                     for b in range(len(batches[0])):
-                        loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], copy_mask=batches[4][0], train=False)
+                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
                         rank_unf_e.append(rank_unf)
                         rank_fil_e.append(rank_fil)
                 else:
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
                     for b in range(len(batches[0])):
-                        loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], train=False)
+                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], train=False)
                         rank_unf_e.append(rank_unf)
                         rank_fil_e.append(rank_fil)
                 rank_unf_e = torch.cat(rank_unf_e)
@@ -210,6 +213,7 @@ for sweep_value in sweep_range:
             total_rank_fil = torch.cat(total_rank_fil)
     print(colorama.Fore.RED + '\traw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)) + colorama.Style.RESET_ALL)
     print(colorama.Fore.RED + '\tfiltered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)) + colorama.Style.RESET_ALL)
+
     print(colorama.Fore.RED + '\tmaximum GPU memory used: {:d}MB'.format(torch.cuda.max_memory_reserved() // 1024 // 1024) + colorama.Style.RESET_ALL)
     if args.force_step > 0:
         print(colorama.Fore.RED + '\tfiltered MRR at each timestamp: '+ '\t'.join(str(float(fil)) for fil in rank_fil_l) + colorama.Style.RESET_ALL)

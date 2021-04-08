@@ -1,0 +1,21 @@
+emb-net:
+  - dim: 200
+    dim_e: 200
+    dim_t: 100
+    history: 1
+    layer: 1
+    sample: '-1'
+gen-net:
+  - dim_r: 200
+    arch: 'dense-dense-dense'
+    dim: '512-512-2048'
+    att_head: '0-0-0'
+    history: '31 15 7 3 1 0'
+    copy: 0.99
+train:
+  - fwd: 140
+    epoch: 80
+    batch_size: 1024
+    lr: 0.001
+    dropout: 0.35
+    weight_decay: 0.00001

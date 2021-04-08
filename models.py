@@ -82,7 +82,7 @@ class EmbModule(nn.Module):
             self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.deepth)
 
     def forward(self, ent, hist_ts, ts):
-        ts = time.time()
+        tss = time.time()
         offset = hist_ts * self.nume
         ent = ent.repeat_interleave(offset.shape[0]).view(ent.shape[0], -1).cpu()
         root = torch.flatten(ent + offset)
@@ -91,8 +91,8 @@ class EmbModule(nn.Module):
         blocks = self.sampler.sample_blocks(self.g, root)
         # print('\tsupport nodes ' + str(blocks[0].srcdata['_ID'].shape[0]))
         blk = [blk.to('cuda:0') for blk in blocks]
-        get_writer().add_scalar('time_sampling', time.time() - ts, get_global_step('time_sampling'))
-        ts = time.time()
+        get_writer().add_scalar('time_sampling', time.time() - tss, get_global_step('time_sampling'))
+        tss = time.time()
         h = self.mods['entity_emb'](torch.remainder(blk[0].srcdata['_ID'], self.nume))
         for l in range(self.deepth):
             phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts)
@@ -102,7 +102,7 @@ class EmbModule(nn.Module):
             h = self.mods['act' + str(l)](h)
             h = self.mods['dropout' + str(l)](h)
         h = h[root_idx].view(-1, offset.shape[0], h.shape[-1])
-        get_writer().add_scalar('time_emb', time.time() - ts, get_global_step('time_emb'))
+        get_writer().add_scalar('time_emb', time.time() - tss, get_global_step('time_emb'))
         return h.view(h.shape[0], -1)
     
 class AttentionLayer(torch.nn.Module):
@@ -124,29 +124,6 @@ class AttentionLayer(torch.nn.Module):
             out.append(torch.matmul(adj[h], v))
         out = torch.cat(out, dim=1)
         return torch.nn.functional.relu(out)
-
-class Attention(torch.nn.Module):
-
-    def __init__(self, in_dim, out_dim, h_att=8):
-        super(Attention, self).__init__()
-        self.h_att = h_att
-        mods = dict()
-        for h in range(h_att):
-            mods['w_q_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
-            mods['w_k_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
-            mods['softmax' + str(h)] = nn.Softmax(dim=1)
-        self.mods = nn.ModuleDict(mods)
-    
-    def forward(self, hid):
-        out = list()
-        # trick from Transformer paper: to avoid gradient vanishing.
-        # var_norm = math.sqrt(self.mods['w_k_0'].weight.shape[-1])
-        for h in range(self.h_att):
-            q = self.mods['w_q_' + str(h)](hid)
-            k = self.mods['w_q_' + str(h)](hid)
-            out.append(self.mods['softmax' + str(h)](torch.matmul(q, torch.transpose(k, -1, -2))))
-            # out.append(self.mods['softmax' + str(h)](torch.matmul(q, torch.transpose(k, -1, -2)) / var_norm))
-        return out
 
 class Copy(torch.nn.Module):
     # copy module used in AAAI'21 Learning from History: Modeling Temporal Knowledge Graphs with Sequential Copy-Generation Networks
@@ -170,24 +147,47 @@ class Copy(torch.nn.Module):
         masked_predict[copy_mask] = raw_predict[copy_mask]
         return masked_predict[:masked_predict.shape[0] // 2], masked_predict[masked_predict.shape[0] // 2:]
 
+class Attention(torch.nn.Module):
+
+    def __init__(self, in_dim, out_dim, h_att=8):
+        super(Attention, self).__init__()
+        self.h_att = h_att
+        mods = dict()
+        for h in range(h_att):
+            mods['w_q_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['w_k_' + str(h)] = nn.Linear(in_dim, out_dim // h_att)
+            mods['softmax' + str(h)] = nn.Softmax(dim=1)
+        self.mods = nn.ModuleDict(mods)
+    
+    def forward(self, hid):
+        out = list()
+        # trick from Transformer paper: to avoid gradient vanishing.
+        # var_norm = math.sqrt(self.mods['w_k_0'].weight.shape[-1])
+        for h in range(self.h_att):
+            q = self.mods['w_q_' + str(h)](hid)
+            k = self.mods['w_k_' + str(h)](hid)
+            a = torch.nn.functional.leaky_relu(torch.matmul(q, torch.transpose(k, -1, -2)), negative_slope=0.1)
+            out.append(self.mods['softmax' + str(h)](a))
+            # out.append(self.mods['softmax' + str(h)](torch.matmul(q, torch.transpose(k, -1, -2)) / var_norm))
+        return out
+
 class SelfAttention(torch.nn.Module):
     
-    def __init__(self, in_dim, emb_dim, h_att=8, dropout=0):
-        # in dim = number of embeddings x emb_dim
-        # out dim = in dim
+    def __init__(self, in_dim, hist_l, emb_dim, h_att=8, dropout=0):
         super(SelfAttention, self).__init__()
         self.emb_dim = emb_dim
         self.in_dim = in_dim
         self.h_att = h_att
+        self.hist_l = hist_l
         mods = dict()
-        mods['attention'] = Attention(emb_dim, emb_dim, h_att=h_att)
+        mods['attention'] = Attention(in_dim // hist_l, emb_dim * h_att, h_att=h_att)
         for h in range(h_att):
             mods['dropout' + str(h)] = nn.Dropout(p=dropout)
-            mods['w_v_' + str(h)] = nn.Linear(emb_dim, emb_dim // h_att)
+            mods['w_v_' + str(h)] = nn.Linear(in_dim // hist_l, emb_dim // h_att)
         self.mods = nn.ModuleDict(mods)
 
     def forward(self, hid):
-        hid = hid.view(hid.shape[0], -1, self.emb_dim)
+        hid = hid.view(hid.shape[0], self.hist_l, -1)
         att = self.mods['attention'](hid)
         ans = list()
         for h in range(self.h_att):
@@ -195,7 +195,29 @@ class SelfAttention(torch.nn.Module):
             v = self.mods['w_v_' + str(h)](hidd)
             ans.append(torch.matmul(att[h], v))
         ans = torch.cat(ans, dim=-1)
+        # import pdb; pdb.set_trace()
         return torch.nn.functional.relu(ans).view(ans.shape[0], -1)
+
+class Conv(torch.nn.Module):
+
+    def __init__(self, in_dim, emb_dim):
+        super(Conv, self).__init__()
+        self.emb_dim = emb_dim
+        mods = dict()
+        mods['conv'] = torch.nn.Conv2d(1, 1, kernel_size=3, strid=1)
+        self.mods = nn.ModuleDict(mods)
+
+    def forward(self, hid):
+        hid = hid.view(hid.shape[0], 1, -1, self.emb_dim)
+        hid = self.conv(hid)
+        hid = hid.view(hid.shape[0], -1)
+        return torch.nn.functional.relu(hid)
+
+class GRU(nn.Module):
+
+    def __init__(self, in_dim, emb_dim, out_dim):
+        super(GRU, self).__init__()
+
 
 class FixStepModel(torch.nn.Module):
 
@@ -221,7 +243,9 @@ class FixStepModel(torch.nn.Module):
             if arch == 'dense':
                 mods['layer_' + str(l)] = Perceptron(in_dim, out_dim, dropout=train_conf['dropout'])
             elif arch == 'selfatt':
-                mods['layer_' + str(l)] = SelfAttention(in_dim, out_dim // att_h, att_h, dropout=train_conf['dropout'])
+                mods['layer_' + str(l)] = SelfAttention(in_dim, self.gen_hist.shape[0], out_dim // self.gen_hist.shape[0], att_h, dropout=train_conf['dropout'])
+            elif arch == 'conv':
+                mods['layer_' + str(l)] = Conv(in_dim, emb_conf['dim'])
             else:
                 raise NotImplementedError
             in_dim = out_dim
@@ -230,12 +254,14 @@ class FixStepModel(torch.nn.Module):
         self.mods = nn.ModuleDict(mods)
         self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
         self.copy_loss_fn = nn.CrossEntropyLoss(reduction='mean')
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'])
-        self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'])
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
+        self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
     
-    def forward(self, sub, obj, rel, ts, copy_mask=None):
+    def forward(self, sub, obj, rel, ts, copy_mask=None, freeze=False):
         hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts)
-        ts = time.time()
+        if freeze:
+            hid = hid.detach()
+        tss = time.time()
         copy_sub_predict = None
         copy_obj_predict = None
         if self.copy > 0:
@@ -251,17 +277,19 @@ class FixStepModel(torch.nn.Module):
         obj_rel_emb = self.mods['object_relation_emb'](rel)
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
-        get_writer().add_scalar('time_gen', time.time() - ts, get_global_step('time_gen'))
+        get_writer().add_scalar('time_gen', time.time() - tss, get_global_step('time_gen'))
         return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
 
-    def step(self, sub, obj, rel, ts, filter_mask=None, copy_mask=None, train=True):
+    def step(self, sub, obj, rel, ts, filter_mask=None, copy_mask=None, train=True, epoch=0):
         if train:
             self.train()
             self.optimizer.zero_grad()
             self.copy_optimizer.zero_grad()
         else:
             self.eval()
-        sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(sub, obj, rel, ts, copy_mask)
+        freeze = False
+        # freeze = True if epoch > 10 else False
+        sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(sub, obj, rel, ts, copy_mask, freeze=freeze)
         tru = torch.cat([sub, obj])
         # seperate copy and gen loss to avoid large copy ratio lead to small gradients in gen
         gen_pre = torch.cat([sub_pre, obj_pre])
