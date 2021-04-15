@@ -8,9 +8,9 @@ emb-net:
 gen-net:
   - dim_r: 200
     arch: 'selfatt-dense-dense'
-    dim: '768-512-2048'
-    att_head: '4-0-0-0'
-    history: '31 15 7 3 1 0'
+    dim: '896-512-2048'
+    att_head: '4-0-0'
+    history: '31 23 15 7 3 1 0'
     copy: 0.99
 train:
   - fwd: 140

@@ -149,6 +149,7 @@ class Events:
 
     def generate_batches(self, copy_mask_ts=0):
         f_batch = 'data/' + self.f_data + '/copy_ts' + str(copy_mask_ts)
+        self.cached_copy_mask_ts = copy_mask_ts
         if os.path.isdir(f_batch):
             print('Load batches from ' + f_batch + '...', end='', flush=True)
             with open(f_batch + '/subs.pkl', 'rb') as f:
@@ -238,7 +239,6 @@ class Events:
 
     def get_batches(self, ts, bs, require_mask=True, copy_mask_ts=0):
         # get minibatches of event at time ts with batch size bs
-        # adjust batchsize to average events in a batch
         if bs > 0:
             bs = round(self.b_subs[ts].shape[0] // round(self.b_subs[ts].shape[0] / bs))
         else:
@@ -256,7 +256,14 @@ class Events:
             objs.append(self.b_objs[ts][idx[start:end]].cuda())
             rels.append(self.b_rels[ts][idx[start:end]].cuda())
             masks.append(torch.cat([self.b_sub_masks[ts][idx[start:end]], self.b_obj_masks[ts][idx[start:end]]], dim=0).cuda())
-            copy_masks.append(torch.cat([self.b_sub_copy_masks[ts][idx[start:end]], self.b_obj_copy_masks[ts][idx[start:end]]], dim=0).cuda())
+            if self.cached_copy_mask_ts == copy_mask_ts:
+                # use cached copy_masks
+                copy_masks.append(torch.cat([self.b_sub_copy_masks[ts][idx[start:end]], self.b_obj_copy_masks[ts][idx[start:end]]], dim=0).cuda())
+            else:
+                # generate copy_masks with new copy_mask_ts
+                self.update_copy_mask(ts - copy_mask_ts)
+                new_sub_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
+                new_obj_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
             start = end
             if start == self.b_subs[ts].shape[0]:
                 break

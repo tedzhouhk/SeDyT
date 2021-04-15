@@ -7,7 +7,7 @@ emb-net:
     sample: '-1'
 gen-net:
   - dim_r: 200
-    arch: 'dense-dense-dense'
+    arch: 'gru-dense-dense'
     dim: '512-512-2048'
     att_head: '0-0-0'
     history: '31 23 15 7 3 1 0'

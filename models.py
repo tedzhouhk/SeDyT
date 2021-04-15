@@ -61,7 +61,8 @@ class EmbModule(nn.Module):
         mods['time_enc'] = TimeEnc(dim_t, nume)
         mods['entity_emb'] = nn.Embedding(nume, dim_in)
         for l in range(self.deepth):
-            # mods['norm' + str(l)] = nn.LayerNorm(dim_in)
+            mods['norm' + str(l)] = nn.LayerNorm(dim_in + dim_t)
+            mods['dropout' + str(l)] = nn.Dropout(dropout)
             conv_dict = dict()
             for r in range(self.numr):
                 conv_dict['r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
@@ -71,7 +72,6 @@ class EmbModule(nn.Module):
                 # conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
                 # conv_dict['self'] = dglnn.GraphConv(dim_in + dim_t, dim_out)
             mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict,aggregate='mean')
-            mods['dropout' + str(l)] = nn.Dropout(dropout)
             mods['act' + str(l)] = nn.ReLU()
             dim_in = dim_out
         self.mods = nn.ModuleDict(mods)
@@ -97,10 +97,11 @@ class EmbModule(nn.Module):
         for l in range(self.deepth):
             phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts)
             h = torch.cat([h, phi], dim=1)
+            h = self.mods['norm' + str(l)](h)
+            h = self.mods['dropout' + str(l)](h)
             h = self.mods['conv' + str(l)](blk[l], {'entity': h})['entity']
             h = h.view(h.shape[0], -1)
             h = self.mods['act' + str(l)](h)
-            h = self.mods['dropout' + str(l)](h)
         h = h[root_idx].view(-1, offset.shape[0], h.shape[-1])
         get_writer().add_scalar('time_emb', time.time() - tss, get_global_step('time_emb'))
         return h.view(h.shape[0], -1)
@@ -200,24 +201,34 @@ class SelfAttention(torch.nn.Module):
 
 class Conv(torch.nn.Module):
 
-    def __init__(self, in_dim, emb_dim):
+    def __init__(self, in_dim, emb_dim, dropout=0):
         super(Conv, self).__init__()
         self.emb_dim = emb_dim
         mods = dict()
-        mods['conv'] = torch.nn.Conv2d(1, 1, kernel_size=3, strid=1)
+        mods['conv'] = torch.nn.Conv2d(1, 1, kernel_size=3, stride=1)
+        mods['dropout'] = torch.nn.Dropout(dropout)
         self.mods = nn.ModuleDict(mods)
 
     def forward(self, hid):
         hid = hid.view(hid.shape[0], 1, -1, self.emb_dim)
-        hid = self.conv(hid)
+        hid = self.mods['dropout'](hid)
+        hid = self.mods['conv'](hid)
         hid = hid.view(hid.shape[0], -1)
         return torch.nn.functional.relu(hid)
 
 class GRU(nn.Module):
 
-    def __init__(self, in_dim, emb_dim, out_dim):
+    def __init__(self, in_dim, emb_dim, out_dim, dropout=0):
         super(GRU, self).__init__()
+        self.emb_dim = emb_dim
+        mods = dict()
+        mods['gru'] = torch.nn.GRU(emb_dim, hidden_size=out_dim, num_layers=2, batch_first=True, dropout=dropout)
+        self.mods = nn.ModuleDict(mods)
 
+    def forward(self, hid):
+        hid = hid.view(hid.shape[0], -1, self.emb_dim)
+        hid = self.mods['gru'](hid)
+        return hid[0][:,-1,:]
 
 class FixStepModel(torch.nn.Module):
 
@@ -245,7 +256,9 @@ class FixStepModel(torch.nn.Module):
             elif arch == 'selfatt':
                 mods['layer_' + str(l)] = SelfAttention(in_dim, self.gen_hist.shape[0], out_dim // self.gen_hist.shape[0], att_h, dropout=train_conf['dropout'])
             elif arch == 'conv':
-                mods['layer_' + str(l)] = Conv(in_dim, emb_conf['dim'])
+                mods['layer_' + str(l)] = Conv(in_dim, emb_conf['dim'], dropout=train_conf['dropout'])
+            elif arch == 'gru':
+                mods['layer_' + str(l)] = GRU(in_dim, emb_conf['dim'], out_dim, dropout=train_conf['dropout'])
             else:
                 raise NotImplementedError
             in_dim = out_dim
@@ -254,8 +267,8 @@ class FixStepModel(torch.nn.Module):
         self.mods = nn.ModuleDict(mods)
         self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
         self.copy_loss_fn = nn.CrossEntropyLoss(reduction='mean')
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
-        self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'])
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
+        self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
     
     def forward(self, sub, obj, rel, ts, copy_mask=None, freeze=False):
         hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts)
