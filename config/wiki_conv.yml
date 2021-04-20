@@ -8,7 +8,7 @@ emb-net:
 gen-net:
   - dim_r: 200
     arch: 'conv-dense-dense'
-    dim: '990-512-2048'
+    dim: '990-1024-2048'
     att_head: '0-0-0'
     history: '31 23 15 7 3 1 0'
     copy: 0.99

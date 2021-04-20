@@ -62,12 +62,12 @@ class EmbModule(nn.Module):
         mods['entity_emb'] = nn.Embedding(nume, dim_in)
         for l in range(self.deepth):
             mods['norm' + str(l)] = nn.LayerNorm(dim_in + dim_t)
-            mods['dropout' + str(l)] = nn.Dropout(dropout)
+            # mods['dropout' + str(l)] = nn.Dropout(dropout)
             conv_dict = dict()
             for r in range(self.numr):
-                conv_dict['r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
-                conv_dict['-r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
-                conv_dict['self'] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4)
+                conv_dict['r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4, feat_drop=dropout, attn_drop=dropout, residual=False)
+                conv_dict['-r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4, feat_drop=dropout, attn_drop=dropout, residual=False)
+                conv_dict['self'] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4, feat_drop=dropout, attn_drop=dropout, residual=False)
                 # conv_dict['r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
                 # conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
                 # conv_dict['self'] = dglnn.GraphConv(dim_in + dim_t, dim_out)
@@ -99,7 +99,7 @@ class EmbModule(nn.Module):
             phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts)
             h = torch.cat([h, phi], dim=1)
             h = self.mods['norm' + str(l)](h)
-            h = self.mods['dropout' + str(l)](h)
+            # h = self.mods['dropout' + str(l)](h)
             h = self.mods['conv' + str(l)](blk[l], {'entity': h})['entity']
             h = h.view(h.shape[0], -1)
             h = self.mods['act' + str(l)](h)
@@ -264,8 +264,9 @@ class FixStepModel(torch.nn.Module):
             else:
                 raise NotImplementedError
             in_dim = out_dim
-        mods['object_classifier'] = Perceptron(out_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
-        mods['subject_classifier'] = Perceptron(out_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
+        rediual_dim = sum(self.gen_dim)
+        mods['object_classifier'] = Perceptron(rediual_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
+        mods['subject_classifier'] = Perceptron(rediual_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
         self.mods = nn.ModuleDict(mods)
         self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
         self.copy_loss_fn = nn.CrossEntropyLoss(reduction='mean')
@@ -283,9 +284,12 @@ class FixStepModel(torch.nn.Module):
             copy_hid = hid[:, -self.emb_dim:]
             # only propagate gradients within the copy module
             copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[:sub.shape[0]].detach(), copy_hid[sub.shape[0]:].detach(), rel, copy_mask)
+        residual_hid = list()
         for l in range(self.gen_l):
             hid = self.mods['norm_' + str(l)](hid)
             hid = self.mods['layer_' + str(l)](hid)
+            residual_hid.append(hid)
+        hid = torch.cat(residual_hid, dim=1)
         sub_emb = hid[:sub.shape[0]]
         obj_emb = hid[sub.shape[0]:]
         sub_rel_emb = self.mods['subject_relation_emb'](rel)

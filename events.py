@@ -264,7 +264,7 @@ class Events:
                 self.update_copy_mask(ts - copy_mask_ts)
                 new_sub_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
                 new_obj_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
-                for s, r, o, i in zip(subs[-1], rels[-1], rels[-1], range(subs[-1].shape[0])):
+                for s, r, o, i in zip(subs[-1], rels[-1], objs[-1], range(subs[-1].shape[0])):
                     s, r, o = int(s), int(r), int(o)
                     new_sub_copy_masks[i][list(self.subject_copy_mask_dict[r][o])] = 1
                     new_obj_copy_masks[i][list(self.object_copy_mask_dict[r][s])] = 1
