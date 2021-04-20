@@ -75,7 +75,7 @@ class Events:
         self.ts_train = len(self.train_events)
         self.ts_val = len(self.val_events)
         self.ts_test = len(self.test_events)
-        self.copy_mask_ts = self.ts_train + self.ts_val + self.ts_test
+        self.copy_mask_ts = 0
         print('\tnum entity: {:d} num relation: {:d}'.format(self.num_entity, self.num_relation))
         print('\tduration train: {:d} vald: {:d} test: {:d}'.format(len(self.train_events), len(self.val_events), len(self.test_events)))
         self.generate_mask_dict()
@@ -136,7 +136,7 @@ class Events:
                 for e in range(self.num_entity):
                     self.object_copy_mask_dict[r][e] = set()
                     self.subject_copy_mask_dict[r][e] = set()
-            for t in range(ts):
+            for t in range(ts + 1):
                 events = self.get_events(t)
                 for s, r, o, _ in events:
                     self.object_copy_mask_dict[r][s].add(o)
@@ -187,7 +187,7 @@ class Events:
                 mask_sub_x = list()
                 mask_sub_y = list()
                 # copy mask contains history up to copy_mask_ts times ago
-                self.update_copy_mask(ts-copy_mask_ts)
+                self.update_copy_mask(ts - copy_mask_ts)
                 copy_mask_obj_x = list()
                 copy_mask_obj_y = list()
                 copy_mask_sub_x = list()
@@ -264,6 +264,11 @@ class Events:
                 self.update_copy_mask(ts - copy_mask_ts)
                 new_sub_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
                 new_obj_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
+                for s, r, o, i in zip(subs[-1], rels[-1], rels[-1], range(subs[-1].shape[0])):
+                    s, r, o = int(s), int(r), int(o)
+                    new_sub_copy_masks[i][list(self.subject_copy_mask_dict[r][o])] = 1
+                    new_obj_copy_masks[i][list(self.object_copy_mask_dict[r][s])] = 1
+                copy_masks.append(torch.cat([new_sub_copy_masks, new_obj_copy_masks], dim=0).cuda())
             start = end
             if start == self.b_subs[ts].shape[0]:
                 break

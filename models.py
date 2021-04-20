@@ -81,7 +81,7 @@ class EmbModule(nn.Module):
         else:
             self.sampler = dgl.dataloading.MultiLayerFullNeighborSampler(self.deepth)
 
-    def forward(self, ent, hist_ts, ts):
+    def forward(self, ent, hist_ts, ts, log=True):
         tss = time.time()
         offset = hist_ts * self.nume
         ent = ent.repeat_interleave(offset.shape[0]).view(ent.shape[0], -1).cpu()
@@ -91,7 +91,8 @@ class EmbModule(nn.Module):
         blocks = self.sampler.sample_blocks(self.g, root)
         # print('\tsupport nodes ' + str(blocks[0].srcdata['_ID'].shape[0]))
         blk = [blk.to('cuda:0') for blk in blocks]
-        get_writer().add_scalar('time_sampling', time.time() - tss, get_global_step('time_sampling'))
+        if log:
+            get_writer().add_scalar('time_sampling', time.time() - tss, get_global_step('time_sampling'))
         tss = time.time()
         h = self.mods['entity_emb'](torch.remainder(blk[0].srcdata['_ID'], self.nume))
         for l in range(self.deepth):
@@ -103,7 +104,8 @@ class EmbModule(nn.Module):
             h = h.view(h.shape[0], -1)
             h = self.mods['act' + str(l)](h)
         h = h[root_idx].view(-1, offset.shape[0], h.shape[-1])
-        get_writer().add_scalar('time_emb', time.time() - tss, get_global_step('time_emb'))
+        if log:
+            get_writer().add_scalar('time_emb', time.time() - tss, get_global_step('time_emb'))
         return h.view(h.shape[0], -1)
     
 class AttentionLayer(torch.nn.Module):
@@ -270,9 +272,9 @@ class FixStepModel(torch.nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
         self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
     
-    def forward(self, sub, obj, rel, ts, copy_mask=None, freeze=False):
-        hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts)
-        if freeze:
+    def forward(self, sub, obj, rel, ts, copy_mask=None, freeze_emb=False, log=True):
+        hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts, log=log)
+        if freeze_emb:
             hid = hid.detach()
         tss = time.time()
         copy_sub_predict = None
@@ -290,19 +292,18 @@ class FixStepModel(torch.nn.Module):
         obj_rel_emb = self.mods['object_relation_emb'](rel)
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
-        get_writer().add_scalar('time_gen', time.time() - tss, get_global_step('time_gen'))
+        if log:
+            get_writer().add_scalar('time_gen', time.time() - tss, get_global_step('time_gen'))
         return sub_predict, obj_predict, copy_sub_predict, copy_obj_predict
 
-    def step(self, sub, obj, rel, ts, filter_mask=None, copy_mask=None, train=True, epoch=0):
+    def step(self, sub, obj, rel, ts, filter_mask=None, copy_mask=None, train=True, log=True, freeze_emb=False):
         if train:
             self.train()
             self.optimizer.zero_grad()
             self.copy_optimizer.zero_grad()
         else:
             self.eval()
-        freeze = False
-        # freeze = True if epoch > 10 else False
-        sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(sub, obj, rel, ts, copy_mask, freeze=freeze)
+        sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(sub, obj, rel, ts, copy_mask, freeze_emb=freeze_emb, log=log)
         tru = torch.cat([sub, obj])
         # seperate copy and gen loss to avoid large copy ratio lead to small gradients in gen
         gen_pre = torch.cat([sub_pre, obj_pre])
