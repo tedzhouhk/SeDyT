@@ -31,6 +31,10 @@ class Perceptron(torch.nn.Module):
             f_in = self.norm(f_in)
         return f_in
 
+    def reset_parameters():
+        torch.nn.init.xavier_uniform_(self.weight.data)
+        torch.nn.init.zeros_(self.bias.data)
+
 class TimeEnc(nn.Module):
     # generate time encoding (TGAT, ICLR'21) from node number (nid)
 
@@ -272,6 +276,7 @@ class FixStepModel(torch.nn.Module):
         self.gen_l = len(self.gen_dim)
         self.gen_hist = torch.tensor([int(x) for x in gen_conf['history'].split()]).cpu()
         self.inf_step = step
+        self.train_conf = train_conf
         mods = dict()
         mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'])
         if self.copy > 0:
@@ -305,6 +310,21 @@ class FixStepModel(torch.nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
         self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
     
+    def reset_gen_parameters(self):
+        # reset parameters for generation network and optimizers
+        for l in range(self.gen_l):
+            for m in [self.mods['norm_' + str(l)]]:
+                if hasattr(m, 'reset_parameters'):
+                    m.reset_parameters()
+            for m in self.mods['layer_' + str(l)].children():
+                if hasattr(m, 'reset_parameters'):
+                    m.reset_parameters()
+        for m in self.mods['copy'].children():
+            if hasattr(m, 'reset_parameters'):
+                m.reset_parameters()
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.train_conf['lr'], weight_decay=self.train_conf['weight_decay'], amsgrad=False)
+        self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=self.train_conf['lr'], weight_decay=self.train_conf['weight_decay'], amsgrad=False)
+
     def forward(self, sub, obj, rel, ts, copy_mask=None, freeze_emb=False, log=True):
         hid = self.mods['emb'](torch.cat([sub, obj]), ts - self.inf_step - self.gen_hist, ts, log=log)
         if freeze_emb:

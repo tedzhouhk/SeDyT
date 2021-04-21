@@ -220,7 +220,7 @@ class Events:
                 self.b_sub_copy_masks[-1][torch.tensor(copy_mask_sub_x, dtype=torch.long), torch.tensor(copy_mask_sub_y, dtype=torch.long)] = 1
                 self.b_obj_copy_masks[-1][torch.tensor(copy_mask_obj_x, dtype=torch.long), torch.tensor(copy_mask_obj_y, dtype=torch.long)] = 1
             print('Saving to ' + f_batch + '...', end='', flush=True)
-            os.mkdir(f_batch)
+            os.makedirs(f_batch)
             with open(f_batch + '/subs.pkl', 'wb') as f:
                 pickle.dump(self.b_subs, f)
             with open(f_batch + '/objs.pkl', 'wb') as f:

@@ -85,20 +85,12 @@ for sweep_value in sweep_range:
                 train_loss = 0
                 train_rank_unf = list()
                 for ts in range(train_conf['fwd'] + max_history + max_step, data.ts_train):
-                    if gen_conf['copy'] > 0:
-                        batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=max_step)
-                        for b in range(len(batches[0])):
-                            ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True)
-                            with torch.no_grad():
-                                train_loss += ls
-                                train_rank_unf.append(rank_unf)
-                    else:
-                        batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False)
-                        for b in range(len(batches[0])):
-                            ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, train=True)
-                            with torch.no_grad():
-                                train_ls += ls
-                                train_rank_unf.append(rank_unf)
+                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=max_step)
+                    for b in range(len(batches[0])):
+                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True)
+                        with torch.no_grad():
+                            train_loss += ls
+                            train_rank_unf.append(rank_unf)
                     pbar.update(1)
                 get_writer().add_scalar('train_loss', train_loss, get_global_step('train_loss'))
                 
@@ -110,20 +102,12 @@ for sweep_value in sweep_range:
                     for ts in range(data.ts_train, data.ts_train + data.ts_val):
                         rank_unf_e = list()
                         rank_fil_e = list()
-                        if gen_conf['copy'] > 0:
-                            batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
-                            for b in range(len(batches[0])):
-                                loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
-                                valid_loss += loss
-                                rank_unf_e.append(rank_unf)
-                                rank_fil_e.append(rank_fil)
-                        else:
-                            batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
-                            for b in range(len(batches[0])):
-                                loss, rank_unf, rank_fil = model.step(batches[0][0], batches[1][0], batches[2][0], ts, filter_mask=batches[3][0], train=False)
-                                valid_loss += loss
-                                rank_unf_e.append(rank_unf)
-                                rank_fil_e.append(rank_fil)
+                        batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
+                        for b in range(len(batches[0])):
+                            loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
+                            valid_loss += loss
+                            rank_unf_e.append(rank_unf)
+                            rank_fil_e.append(rank_fil)
                         rank_unf_e = torch.cat(rank_unf_e)
                         rank_fil_e = torch.cat(rank_fil_e)
                         total_rank_unf.append(rank_unf_e)
@@ -156,18 +140,11 @@ for sweep_value in sweep_range:
                         for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
                             rank_unf_e = list()
                             rank_fil_e = list()
-                            if gen_conf['copy'] > 0:
-                                batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
-                                for b in range(len(batches[0])):
-                                    loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
-                                    rank_unf_e.append(rank_unf)
-                                    rank_fil_e.append(rank_fil)
-                            else:
-                                batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
-                                for b in range(len(batches[0])):
-                                    loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], train=False)
-                                    rank_unf_e.append(rank_unf)
-                                    rank_fil_e.append(rank_fil)
+                            batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
+                            for b in range(len(batches[0])):
+                                loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
+                                rank_unf_e.append(rank_unf)
+                                rank_fil_e.append(rank_fil)
                             rank_unf_e = torch.cat(rank_unf_e)
                             rank_fil_e = torch.cat(rank_fil_e)
                             total_rank_unf.append(rank_unf_e.cpu())
@@ -203,18 +180,11 @@ for sweep_value in sweep_range:
             for ts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test):
                 rank_unf_e = list()
                 rank_fil_e = list()
-                if gen_conf['copy'] > 0:
-                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
-                    for b in range(len(batches[0])):
-                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
-                        rank_unf_e.append(rank_unf)
-                        rank_fil_e.append(rank_fil)
-                else:
-                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
-                    for b in range(len(batches[0])):
-                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], train=False)
-                        rank_unf_e.append(rank_unf)
-                        rank_fil_e.append(rank_fil)
+                batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
+                for b in range(len(batches[0])):
+                    loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
+                    rank_unf_e.append(rank_unf)
+                    rank_fil_e.append(rank_fil)
                 rank_unf_e = torch.cat(rank_unf_e)
                 rank_fil_e = torch.cat(rank_fil_e)
                 total_rank_unf.append(rank_unf_e.cpu())
@@ -241,50 +211,39 @@ for sweep_value in sweep_range:
         ms_total_rank_fil = [last_rank_fil.cpu()]
         for tts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test - 1):
             model.load_state_dict(torch.load(save_path))
+            model.reset_gen_parameters()
+            tts = data.ts_train + data.ts_val
             step = tts - data.ts_train + 1
             print('Timestamp {:d} with step {:d}:'.format(tts, step))
             model.inf_step = step
             # training
-            train_loss = 0
-            train_rank_unf = list()
-            for ts in tqdm(range(train_conf['fwd'] + max_history + step, data.ts_train)):
-                if gen_conf['copy'] > 0:
+            for _ in range(10):
+                train_loss = 0
+                train_rank_unf = list()
+                for ts in tqdm(range(train_conf['fwd'] + max_history + step, data.ts_train)):
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=step)
                     for b in range(len(batches[0])):
                         ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True, log=False, freeze_emb=True)
                         with torch.no_grad():
                             train_loss += ls
                             train_rank_unf.append(rank_unf)
-                else:
-                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False)
-                    for b in range(len(batches[0])):
-                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, train=True, log=False, freeze_emb=True)
-                        with torch.no_grad():
-                            train_ls += ls
-                            train_rank_unf.append(rank_unf)
-            train_rank_unf = torch.cat(train_rank_unf)
-            # test on the selecting ts (tts)
-            with torch.no_grad():
-                ts = tts
-                rank_unf_e = list()
-                rank_fil_e = list()
-                if gen_conf['copy'] > 0:
+                train_rank_unf = torch.cat(train_rank_unf)
+                # test on the selecting ts (tts)
+                with torch.no_grad():
+                    ts = tts
+                    rank_unf_e = list()
+                    rank_fil_e = list()
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=step)
                     for b in range(len(batches[0])):
                         loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False, log=False)
                         rank_unf_e.append(rank_unf)
                         rank_fil_e.append(rank_fil)
-                else:
-                    batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True)
-                    for b in range(len(batches[0])):
-                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], train=False, log=False)
-                        rank_unf_e.append(rank_unf)
-                        rank_fil_e.append(rank_fil)
-                rank_unf_e = torch.cat(rank_unf_e)
-                rank_fil_e = torch.cat(rank_fil_e)
-                print('\ttrain raw MRR:      {:.4f}'.format(mrr(train_rank_unf)))
-                print('\ttest raw MRR:       {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(rank_unf_e), hit3(rank_unf_e), hit10(rank_unf_e)))
-                print('\ttest filtered MRR:  {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(rank_fil_e), hit3(rank_fil_e), hit10(rank_fil_e)))
+                    rank_unf_e = torch.cat(rank_unf_e)
+                    rank_fil_e = torch.cat(rank_fil_e)
+                    print('\ttrain raw MRR:      {:.4f}'.format(mrr(train_rank_unf)))
+                    print('\ttest raw MRR:       {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(rank_unf_e), hit3(rank_unf_e), hit10(rank_unf_e)))
+                    print('\ttest filtered MRR:  {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(rank_fil_e), hit3(rank_fil_e), hit10(rank_fil_e)))
+            with torch.no_grad():
                 ms_total_rank_unf.append(rank_unf_e.cpu())
                 ms_total_rank_fil.append(rank_fil_e.cpu())
         ms_total_rank_unf = torch.cat(ms_total_rank_unf)
