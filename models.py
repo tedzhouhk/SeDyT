@@ -287,6 +287,10 @@ class FixStepModel(torch.nn.Module):
                 mods['layer_' + str(l)] = SelfAttention(in_dim, self.gen_hist.shape[0], out_dim // self.gen_hist.shape[0], att_h, dropout=train_conf['dropout'])
             elif arch == 'conv':
                 mods['layer_' + str(l)] = Conv(in_dim, emb_conf['dim'], dropout=train_conf['dropout'])
+            elif arch == 'rnn':
+                mods['layer_' + str(l)] = RNN(in_dim, emb_conf['dim'], out_dim, dropout=train_conf['dropout'])
+            elif arch == 'lstm':
+                mods['layer_' + str(l)] = LSTM(in_dim, emb_conf['dim'], out_dim, dropout=train_conf['dropout'])
             elif arch == 'gru':
                 mods['layer_' + str(l)] = GRU(in_dim, emb_conf['dim'], out_dim, dropout=train_conf['dropout'])
             else:
