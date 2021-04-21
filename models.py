@@ -218,6 +218,34 @@ class Conv(torch.nn.Module):
         hid = hid.view(hid.shape[0], -1)
         return torch.nn.functional.relu(hid)
 
+class RNN(nn.Module):
+
+    def __init__(self, in_dim, emb_dim, out_dim, dropout=0):
+        super(RNN, self).__init__()
+        self.emb_dim = emb_dim
+        mods = dict()
+        mods['rnn'] = torch.nn.RNN(emb_dim, hidden_size=out_dim, num_layers=2, batch_first=True, dropout=dropout)
+        self.mods = nn.ModuleDict(mods)
+
+    def forward(self, hid):
+        hid = hid.view(hid.shape[0], -1, self.emb_dim)
+        hid = self.mods['rnn'](hid)
+        return hid[0][:,-1,:]
+
+class LSTM(nn.Module):
+
+    def __init__(self, in_dim, emb_dim, out_dim, dropout=0):
+        super(LSTM, self).__init__()
+        self.emb_dim = emb_dim
+        mods = dict()
+        mods['lstm'] = torch.nn.LSTM(emb_dim, hidden_size=out_dim, num_layers=2, batch_first=True, dropout=dropout)
+        self.mods = nn.ModuleDict(mods)
+
+    def forward(self, hid):
+        hid = hid.view(hid.shape[0], -1, self.emb_dim)
+        hid = self.mods['lstm'](hid)
+        return hid[0][:,-1,:]
+
 class GRU(nn.Module):
 
     def __init__(self, in_dim, emb_dim, out_dim, dropout=0):
