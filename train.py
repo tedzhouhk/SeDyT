@@ -209,12 +209,14 @@ for sweep_value in sweep_range:
         # the result of the last timestamp is the same as single model
         ms_total_rank_unf = [last_rank_unf.cpu()]
         ms_total_rank_fil = [last_rank_fil.cpu()]
-        for tts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test - 1):
+        for tts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + 1):
+        # for tts in range(data.ts_train + data.ts_val, data.ts_train + data.ts_val + data.ts_test - 1):
             model.load_state_dict(torch.load(save_path))
-            model.reset_gen_parameters()
-            tts = data.ts_train + data.ts_val
+            # model = FixStepModel(emb_conf, gen_conf, train_conf, g, data.num_entity, data.num_relation, max_step).cuda()
+            # model.reset_gen_parameters()
             step = tts - data.ts_train + 1
             print('Timestamp {:d} with step {:d}:'.format(tts, step))
+            phi_offset = model.inf_step - step
             model.inf_step = step
             # training
             for _ in range(10):
@@ -223,7 +225,7 @@ for sweep_value in sweep_range:
                 for ts in tqdm(range(train_conf['fwd'] + max_history + step, data.ts_train)):
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=step)
                     for b in range(len(batches[0])):
-                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True, log=False, freeze_emb=True)
+                        ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True, log=False, freeze_emb=False, phi_offset=phi_offset)
                         with torch.no_grad():
                             train_loss += ls
                             train_rank_unf.append(rank_unf)
@@ -235,7 +237,7 @@ for sweep_value in sweep_range:
                     rank_fil_e = list()
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=step)
                     for b in range(len(batches[0])):
-                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False, log=False)
+                        loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False, log=False, phi_offset=phi_offset)
                         rank_unf_e.append(rank_unf)
                         rank_fil_e.append(rank_fil)
                     rank_unf_e = torch.cat(rank_unf_e)

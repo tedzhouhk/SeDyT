@@ -1,7 +1,8 @@
 from events import Events
 import colorama
 
-for d in ['GDELT', 'ICEWS14', 'ICEWS18', 'WIKI', 'YAGO']:
+for d in ['GDELT', 'ICEWS18', 'WIKI', 'YAGO']:
+# for d in ['GDELT', 'ICEWS14', 'ICEWS18', 'WIKI', 'YAGO']:
     e = Events(d)
     e.update_copy_mask(e.ts_train - 1)
     hist = e.object_copy_mask_dict
