@@ -240,7 +240,7 @@ class Events:
     def get_batches(self, ts, bs, require_mask=True, copy_mask_ts=0):
         # get minibatches of event at time ts with batch size bs
         if bs > 0:
-            bs = round(self.b_subs[ts].shape[0] // round(self.b_subs[ts].shape[0] / bs))
+            bs = round(self.b_subs[ts].shape[0] // max(1, round(self.b_subs[ts].shape[0] / bs)))
         else:
             bs = self.b_subs[ts].shape[0]
         idx = torch.randperm(self.b_subs[ts].shape[0])
