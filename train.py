@@ -7,6 +7,7 @@ parser.add_argument('--gpu', type=int, default=0, help='which gpu to use')
 parser.add_argument('--store_result', type=str, default='', help='store the result for tuning')
 parser.add_argument('--single_step_model', type=str, default='', help='whether to load a pre-trained single-step model')
 parser.add_argument('--sweep', type=str, default='', help='lr-0-0.005-25')
+parser.add_argument('--multi',default=False, action='store_true', help='whether to perform fine-tuning for multi-step model')
 args = parser.parse_args()
 
 import os
@@ -57,7 +58,7 @@ with tqdm(total=total_length) as pbar:
         for ts in range(data.ts_train, data.ts_train + data.ts_val + data.ts_test):
             event_dict = data.get_hetero_dict(ts, emb_conf['history'])
             add_edges_from_dict(g, event_dict)
-        pbar.update(1)
+            pbar.update(1)
 
 data.generate_batches(copy_mask_ts=max_step)
 
@@ -203,7 +204,7 @@ for sweep_value in sweep_range:
         with open(args.store_result, encoding="utf-8", mode="a") as f:
             f.write('single\t{:.4f}\t{:.4f}\n'.format(sweep_value, mrr(total_rank_fil)))
 
-    if not args.force_step > 0:   
+    if args.multi:   
         # multi-step fine-tuning
         print('Fine-tuning for multi-step models...')
         # the result of the last timestamp is the same as single model
