@@ -191,7 +191,9 @@ class Events:
                 mask_sub_x = list()
                 mask_sub_y = list()
                 # copy mask contains history up to copy_mask_ts times ago
-                self.update_copy_mask(ts - copy_mask_ts)
+                # in validation and testing, use the copy mask of the whole training set (the same as CyGNet)
+                copy_until = ts - copy_mask_ts if ts < self.ts_train else self.ts_train - 1
+                self.update_copy_mask(copy_until)
                 copy_mask_obj_x = list()
                 copy_mask_obj_y = list()
                 copy_mask_sub_x = list()
@@ -265,7 +267,8 @@ class Events:
                 copy_masks.append(torch.cat([self.b_sub_copy_masks[ts][idx[start:end]], self.b_obj_copy_masks[ts][idx[start:end]]], dim=0).cuda())
             else:
                 # generate copy_masks with new copy_mask_ts
-                self.update_copy_mask(ts - copy_mask_ts)
+                copy_until = ts - copy_mask_ts if ts < self.ts_train else self.ts_train - 1
+                self.update_copy_mask(copy_until)
                 new_sub_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
                 new_obj_copy_masks = torch.zeros(subs[-1].shape[0], self.num_entity, dtype=bool)
                 for s, r, o, i in zip(subs[-1], rels[-1], objs[-1], range(subs[-1].shape[0])):
