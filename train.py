@@ -67,6 +67,8 @@ else:
                 event_dict = data.get_hetero_dict(ts, emb_conf['history'], emb_conf['granularity'])
                 add_edges_from_dict(g, event_dict)
                 pbar.update(1)
+    if not os.path.isdir('data/' + args.data):
+        os.makedirs('data/' + args.data)
     with open(graph_f, 'wb') as gf:
         pickle.dump(g, gf)
 
@@ -153,6 +155,7 @@ for sweep_value in sweep_range:
                             rank_fil_e = list()
                             batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
                             for b in range(len(batches[0])):
+                                # import pdb; pdb.set_trace()
                                 loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
                                 rank_unf_e.append(rank_unf)
                                 rank_fil_e.append(rank_fil)
