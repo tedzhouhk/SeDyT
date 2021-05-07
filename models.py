@@ -52,7 +52,7 @@ class TimeEnc(nn.Module):
 
 class EmbModule(nn.Module):
 
-    def __init__(self, dim_in, dim_out, dim_t, numr, nume, g, dropout=0, deepth=2, sampling=None):
+    def __init__(self, dim_in, dim_out, dim_t, numr, nume, g, dropout=0, deepth=2, sampling=None, granularity=1):
         super(EmbModule, self).__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
@@ -61,6 +61,7 @@ class EmbModule(nn.Module):
         self.nume = nume
         self.deepth = deepth
         self.g = g
+        self.granularity = granularity
         mods = dict()
         mods['time_enc'] = TimeEnc(dim_t, nume)
         mods['entity_emb'] = nn.Embedding(nume, dim_in)
@@ -87,7 +88,7 @@ class EmbModule(nn.Module):
 
     def forward(self, ent, hist_ts, ts, log=True, phi_offset=0):
         tss = time.time()
-        offset = hist_ts * self.nume
+        offset = (hist_ts // self.granularity) * self.nume
         ent = ent.repeat_interleave(offset.shape[0]).view(ent.shape[0], -1).cpu()
         root = torch.flatten(ent + offset)
         # dgl sampler need input to be unique
@@ -97,6 +98,7 @@ class EmbModule(nn.Module):
         if log:
             get_writer().add_scalar('time_sampling', time.time() - tss, get_global_step('time_sampling'))
         tss = time.time()
+        # print(root.shape[0], blk[0].srcdata['_ID'].shape[0])
         h = self.mods['entity_emb'](torch.remainder(blk[0].srcdata['_ID'], self.nume))
         for l in range(self.deepth):
             phi = self.mods['time_enc'](blk[l].srcdata['_ID'], ts + phi_offset)
@@ -132,7 +134,7 @@ class AttentionLayer(torch.nn.Module):
         return torch.nn.functional.relu(out)
 
 class Copy(torch.nn.Module):
-    # copy module used in AAAI'21 Learning from History: Modeling Temporal Knowledge Graphs with Sequential Copy-Generation Networks
+    # copy module used in AAAI'21 CyGNet
 
     def __init__(self, in_dim, dim_r, nume, numr, dropout=0):
         super(Copy, self).__init__()
@@ -277,7 +279,7 @@ class FixStepModel(torch.nn.Module):
         self.inf_step = step
         self.train_conf = train_conf
         mods = dict()
-        mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'])
+        mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'], granularity=emb_conf['granularity'])
         if self.copy > 0:
             mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, numr, dropout=train_conf['dropout'])
         mods['subject_relation_emb'] = nn.Embedding(numr, gen_conf['dim_r'])

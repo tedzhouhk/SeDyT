@@ -14,6 +14,7 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
 
 import torch
+import pickle
 import dgl
 import colorama
 import numpy as np
@@ -38,27 +39,36 @@ set_writer(str(datetime.datetime.now())[:19].replace(' ', '') + 'LR{:.4f}DR{:.1f
 max_history = max([int(h) for h in gen_conf['history'].split(' ')])
 
 # generate graph, here we build the full graph with all nodes because a node at time t only has in-neighbors from the past
-g = None
-print('Constructing graph...')
-total_length = data.ts_train
-if args.force_step > 0:
-    total_length += data.ts_val + data.ts_test
-with tqdm(total=total_length) as pbar:
-    for ts in range(0, data.ts_train):
-        event_dict = data.get_hetero_dict(ts, emb_conf['history'])
-        if g is None:
-            add_virtual_relation(event_dict, data.num_entity, data.num_relation)
-            g = dgl.heterograph(event_dict)
-            g.remove_nodes(data.num_entity, 'entity')
-        else:
-            add_edges_from_dict(g, event_dict)
-        pbar.update(1)
+graph_f = 'data/' + args.data + '/' + str(emb_conf['history']) + '_' + str(emb_conf['granularity']) + '.bin'
+if os.path.isfile(graph_f):
+    print('Loading graph...', end='', flush=True)
+    with open(graph_f, 'rb') as gf:
+        g = pickle.load(gf)
+    print('Done')
+else:
+    print('Constructing graph...')
+    g = None
+    total_length = data.ts_train
     if args.force_step > 0:
-        # since a specific step is selected, it is possible to use ground truth in val or test set
-        for ts in range(data.ts_train, data.ts_train + data.ts_val + data.ts_test):
-            event_dict = data.get_hetero_dict(ts, emb_conf['history'])
-            add_edges_from_dict(g, event_dict)
+        total_length += data.ts_val + data.ts_test - args.force_step
+    with tqdm(total=total_length) as pbar:
+        for ts in range(0, data.ts_train):
+            event_dict = data.get_hetero_dict(ts, emb_conf['history'], emb_conf['granularity'])
+            if g is None:
+                add_virtual_relation(event_dict, data.num_entity, data.num_relation)
+                g = dgl.heterograph(event_dict)
+                g.remove_nodes(data.num_entity, 'entity')
+            else:
+                add_edges_from_dict(g, event_dict)
             pbar.update(1)
+        if args.force_step > 0:
+            # since a specific step is selected, it is possible to use ground truth in val or test set
+            for ts in range(data.ts_train, data.ts_train + data.ts_val + data.ts_test  - args.force_step):
+                event_dict = data.get_hetero_dict(ts, emb_conf['history'], emb_conf['granularity'])
+                add_edges_from_dict(g, event_dict)
+                pbar.update(1)
+    with open(graph_f, 'wb') as gf:
+        pickle.dump(g, gf)
 
 data.generate_batches(copy_mask_ts=max_step)
 

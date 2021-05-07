@@ -65,4 +65,6 @@ def plot_and_save(fil, unf):
 def parse_train_config(f):
     with open(f) as tf:
         tc = yaml.load(tf)
+    if not 'granularity' in tc['emb-net'][0].keys():
+        tc['emb-net'][0]['granularity'] = 1
     return tc['emb-net'][0], tc['gen-net'][0], tc['train'][0]
