@@ -71,6 +71,7 @@ else:
         os.makedirs('data/' + args.data)
     with open(graph_f, 'wb') as gf:
         pickle.dump(g, gf)
+# import pdb; pdb.set_trace()
 
 data.generate_batches(copy_mask_ts=max_step)
 
@@ -86,7 +87,7 @@ for sweep_value in sweep_range:
     if sweep_para == 'fwd':
         sweep_value = int(sweep_value)
     train_conf[sweep_para] = sweep_value
-    model = FixStepModel(emb_conf, gen_conf, train_conf, g, data.num_entity, data.num_relation, max_step).cuda()
+    model = FixStepModel(emb_conf, gen_conf, train_conf, g, data.num_entity, data.num_relation, max_step, s_dist=data.s_dist, o_dist=data.o_dist).cuda()
     if args.single_step_model == '':
         max_mrr = 0
         max_e = 0

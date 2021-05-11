@@ -80,10 +80,21 @@ class Events:
         self.ts_val = len(self.val_events)
         self.ts_test = len(self.test_events)
         self.copy_mask_ts = 0
+        self.generate_distribution()
         print('\tnum entity: {:d} num relation: {:d}'.format(self.num_entity, self.num_relation))
         print('\tduration train: {:d} vald: {:d} test: {:d}'.format(len(self.train_events), len(self.val_events), len(self.test_events)))
         self.generate_mask_dict()
         print('Done loading data.')
+
+    def generate_distribution(self):
+        dists = np.zeros(self.num_entity, dtype=np.int)
+        disto = np.zeros(self.num_entity, dtype=np.int)
+        for ev in self.train_events:
+            for s, r, o, _ in ev:
+                dists[s] += 1
+                disto[o] += 1
+        self.s_dist = dists / np.sum(dists)
+        self.o_dist = disto / np.sum(disto)
 
     def generate_mask_dict(self):
         self.object_mask_dict = dict()

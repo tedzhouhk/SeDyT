@@ -91,6 +91,7 @@ class EmbModule(nn.Module):
         offset = (hist_ts // self.granularity) * self.nume
         ent = ent.repeat_interleave(offset.shape[0]).view(ent.shape[0], -1).cpu()
         root = torch.flatten(ent + offset)
+        # return self.mods['entity_emb'](torch.remainder(root.cuda(), self.nume))
         # dgl sampler need input to be unique
         root, root_idx = torch.unique(root, sorted=True, return_inverse=True)
         blocks = self.sampler.sample_blocks(self.g, root)
@@ -267,7 +268,7 @@ class GRU(nn.Module):
 
 class FixStepModel(torch.nn.Module):
 
-    def __init__(self, emb_conf, gen_conf, train_conf, g, nume, numr, step):
+    def __init__(self, emb_conf, gen_conf, train_conf, g, nume, numr, step, s_dist=None, o_dist=None):
         super(FixStepModel, self).__init__()
         self.copy = gen_conf['copy']
         self.emb_dim = emb_conf['dim']
@@ -278,7 +279,18 @@ class FixStepModel(torch.nn.Module):
         self.gen_hist = torch.tensor([int(x) for x in gen_conf['history'].split()]).cpu()
         self.inf_step = step
         self.train_conf = train_conf
+        self.norm_loss = False
+        if 'norm_loss' in train_conf:
+            if train_conf['norm_loss']:
+                self.norm_loss = True
+                self.s_dist = torch.from_numpy(s_dist).cuda()
+                self.o_dist = torch.from_numpy(o_dist).cuda()
         mods = dict()
+        self.time_emb = False
+        if 'dim_t' in gen_conf:
+            self.time_emb = True
+            self.time_emb_vec = torch.nn.Parameter(torch.Tensor(1, gen_conf['dim_t']))
+            torch.nn.init.xavier_uniform_(self.time_emb_vec, gain=torch.nn.init.calculate_gain('relu'))
         mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'], granularity=emb_conf['granularity'])
         if self.copy > 0:
             mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, numr, dropout=train_conf['dropout'])
@@ -303,13 +315,15 @@ class FixStepModel(torch.nn.Module):
                 raise NotImplementedError
             in_dim = out_dim
         rediual_dim = sum(self.gen_dim)
-        mods['object_classifier'] = Perceptron(rediual_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
-        mods['subject_classifier'] = Perceptron(rediual_dim + gen_conf['dim_r'], nume, act=False, dropout=train_conf['dropout'])
+        dim_t = 0 if not self.time_emb else gen_conf['dim_t']
+        mods['object_classifier'] = Perceptron(rediual_dim + gen_conf['dim_r'] + dim_t, nume, act=False, dropout=train_conf['dropout'])
+        mods['subject_classifier'] = Perceptron(rediual_dim + gen_conf['dim_r'] + dim_t, nume, act=False, dropout=train_conf['dropout'])
         self.mods = nn.ModuleDict(mods)
-        self.loss_fn = nn.CrossEntropyLoss(reduction='mean')
-        self.copy_loss_fn = nn.CrossEntropyLoss(reduction='mean')
+        self.loss_fn = nn.CrossEntropyLoss(reduction='none')
+        self.copy_loss_fn = nn.CrossEntropyLoss(reduction='none')
         self.optimizer = torch.optim.Adam(self.parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
         self.copy_optimizer = torch.optim.Adam(self.mods['copy'].parameters(), lr=train_conf['lr'], weight_decay=train_conf['weight_decay'], amsgrad=False)
+        self._deb=0
     
     def reset_gen_parameters(self):
         # reset parameters for generation network and optimizers
@@ -337,6 +351,9 @@ class FixStepModel(torch.nn.Module):
             copy_hid = hid[:, -self.emb_dim:]
             # only propagate gradients within the copy module
             copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[:sub.shape[0]].detach(), copy_hid[sub.shape[0]:].detach(), rel, copy_mask)
+        # if self._deb > 100:
+        #     _emb=hid
+        #     import pdb; pdb.set_trace()
         residual_hid = list()
         for l in range(self.gen_l):
             hid = self.mods['norm_' + str(l)](hid)
@@ -347,6 +364,11 @@ class FixStepModel(torch.nn.Module):
         obj_emb = hid[sub.shape[0]:]
         sub_rel_emb = self.mods['subject_relation_emb'](rel)
         obj_rel_emb = self.mods['object_relation_emb'](rel)
+        if self.time_emb:
+            t_emb = self.time_emb_vec[0]
+            t_emb = (t_emb * ts).repeat(sub_emb.shape[0]).reshape(-1, t_emb.shape[0])
+            sub_emb = torch.cat([sub_emb, t_emb], 1)
+            obj_emb = torch.cat([obj_emb, t_emb], 1)
         sub_predict = self.mods['subject_classifier'](torch.cat([obj_emb, obj_rel_emb], 1))
         obj_predict = self.mods['object_classifier'](torch.cat([sub_emb, sub_rel_emb], 1))
         if log:
@@ -360,27 +382,46 @@ class FixStepModel(torch.nn.Module):
             self.copy_optimizer.zero_grad()
         else:
             self.eval()
+        if train==False:
+            self._deb += 1
         sub_pre, obj_pre, copy_sub_predict, copy_obj_predict = self.forward(sub, obj, rel, ts, copy_mask, freeze_emb=freeze_emb, log=log, phi_offset=phi_offset)
         tru = torch.cat([sub, obj])
+        # if train==False:
+        #     _csp = copy_sub_predict
+        #     _sp = sub_pre
+        #     _pcsp = nn.functional.softmax(_csp, dim=1)
+        #     _psp = nn.functional.softmax(_sp, dim=1)
         # seperate copy and gen loss to avoid large copy ratio lead to small gradients in gen
         gen_pre = torch.cat([sub_pre, obj_pre])
         copy_pre = torch.cat([copy_sub_predict, copy_obj_predict])
         gen_loss = self.loss_fn(gen_pre, tru)
         copy_loss = self.copy_loss_fn(copy_pre, tru)
+        if not self.norm_loss:
+            gen_loss = torch.mean(gen_loss)
+            copy_loss = torch.mean(copy_loss)
+        else:
+            norm_fact = torch.cat([self.s_dist[sub],self.o_dist[obj]], dim=0)
+            # assert (norm_fact==0).nonzero().shape[0]==0
+            norm_fact = norm_fact / torch.sum(norm_fact)
+            # import pdb; pdb.set_trace()
+            gen_loss = torch.sum(gen_loss * norm_fact)
+            copy_loss = torch.sum(copy_loss * norm_fact)
         if train:
             gen_loss.backward()
             copy_loss.backward()
             self.optimizer.step()
             self.copy_optimizer.step()
-        sub_pre = nn.functional.softmax(sub_pre, dim=1)
-        obj_pre = nn.functional.softmax(obj_pre, dim=1)
-        if self.copy > 0:
-            copy_sub_predict = nn.functional.softmax(copy_sub_predict, dim=1)
-            copy_obj_predict = nn.functional.softmax(copy_obj_predict, dim=1)
-            sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
-            obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
-        pre = torch.cat([sub_pre, obj_pre])
+        # sub_pre = nn.functional.softmax(sub_pre, dim=1)
+        # obj_pre = nn.functional.softmax(obj_pre, dim=1)
+        # if self.copy > 0:
+        #     copy_sub_predict = nn.functional.softmax(copy_sub_predict, dim=1)
+        #     copy_obj_predict = nn.functional.softmax(copy_obj_predict, dim=1)
+        #     sub_pre = sub_pre * (1 - self.copy) + copy_sub_predict * self.copy
+        #     obj_pre = obj_pre * (1 - self.copy) + copy_obj_predict * self.copy
         with torch.no_grad():
+            sub_pre += copy_sub_predict
+            obj_pre += copy_obj_predict
+            pre = torch.cat([sub_pre, obj_pre])
             pre = pre.clone().detach()
             tru = tru.clone().detach()
             pre_thres = pre.gather(1,tru.unsqueeze(1))
@@ -390,4 +431,7 @@ class FixStepModel(torch.nn.Module):
                 pre[filter_mask] = float('-inf')
                 pre = pre.scatter(1, tru.unsqueeze(1), pre_thres)
                 rank_fil = get_rank(pre, pre_thres)
+        # if train==False:
+        #     if self._deb > 100:
+        #         import pdb; pdb.set_trace()
         return gen_loss, rank_unf, rank_fil
