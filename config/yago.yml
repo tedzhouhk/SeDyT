@@ -7,14 +7,15 @@ emb-net:
     sample: '-1'
 gen-net:
   - dim_r: 200
-    arch: 'selfatt-dense-dense'
-    dim: '896-1024-2048'
-    att_head: '4-0-0'
-    history: '31 23 15 7 3 1 0'
+    arch: 'conv-dense-dense'
+    dim: '594-1024-2048'
+    att_head: '0-0-0'
+    history: '15 7 3 1 0'
+    copy: 0.99
 train:
-  - fwd: 140
+  - fwd: 107
     epoch: 80
     batch_size: 1024
-    lr: 0.001
-    dropout: 0.4
+    lr: 0.0015
+    dropout: 0.45
     weight_decay: 0.00001
