@@ -84,6 +84,7 @@ class Events:
         print('\tnum entity: {:d} num relation: {:d}'.format(self.num_entity, self.num_relation))
         print('\tduration train: {:d} vald: {:d} test: {:d}'.format(len(self.train_events), len(self.val_events), len(self.test_events)))
         self.generate_mask_dict()
+        self.r_limit = self.num_relation
         print('Done loading data.')
 
     def generate_distribution(self):
@@ -93,6 +94,8 @@ class Events:
             for s, r, o, _ in ev:
                 dists[s] += 1
                 disto[o] += 1
+        # self.s_dist = 1 / (dists + 1)
+        # self.o_dist = 1 / (disto + 1)
         self.s_dist = dists / np.sum(dists)
         self.o_dist = disto / np.sum(disto)
 
@@ -123,6 +126,21 @@ class Events:
             events = self.train_events[ts]
         return events
 
+
+    def set_r_limit(self, r_limit):
+        self.r_limit = r_limit
+        distr = np.zeros(self.num_relation, dtype=np.int)
+        for ev in self.train_events:
+            for s, r, o, _ in ev:
+                distr[r] += 1
+        r_order = np.argsort(distr)[::-1]
+        self.r_dict = dict()
+        for i in range(self.num_relation):
+            if i < r_limit - 1:
+                self.r_dict[r_order[i]] = i
+            else:
+                self.r_dict[r_order[i]] = self.r_limit - 1
+
     def get_hetero_dict(self, ts, h, graunlarity=1):
         # get dict of events happens at time ts
         h = min(ts, h)
@@ -130,6 +148,8 @@ class Events:
         event_dict = defaultdict(lambda: list())
         offset = (ts // graunlarity) * self.num_entity
         for s, r, o, _ in events:
+            if self.r_limit != self.num_relation:
+                r = self.r_dict[r]
             event_dict[('entity', 'r' + str(r), 'entity')].append((s + offset, o + offset))
             event_dict[('entity', '-r' + str(r), 'entity')].append((o + offset, s + offset))
             # event_dict[('entity', 'r0', 'entity')].append((s + offset, o + offset))

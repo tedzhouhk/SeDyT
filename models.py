@@ -52,7 +52,7 @@ class TimeEnc(nn.Module):
 
 class EmbModule(nn.Module):
 
-    def __init__(self, dim_in, dim_out, dim_t, numr, nume, g, dropout=0, deepth=2, sampling=None, granularity=1):
+    def __init__(self, dim_in, dim_out, dim_t, numr, nume, g, dropout=0, deepth=2, sampling=None, granularity=1, r_limit=None):
         super(EmbModule, self).__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
@@ -65,18 +65,20 @@ class EmbModule(nn.Module):
         mods = dict()
         mods['time_enc'] = TimeEnc(dim_t, nume)
         mods['entity_emb'] = nn.Embedding(nume, dim_in)
+        if r_limit is None:
+            r_limit = numr
         for l in range(self.deepth):
             mods['norm' + str(l)] = nn.LayerNorm(dim_in + dim_t)
             # mods['dropout' + str(l)] = nn.Dropout(dropout)
             conv_dict = dict()
-            for r in range(self.numr):
+            for r in range(r_limit):
                 conv_dict['r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4, feat_drop=dropout, attn_drop=dropout, residual=False)
                 conv_dict['-r' + str(r)] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4, feat_drop=dropout, attn_drop=dropout, residual=False)
                 conv_dict['self'] = dglnn.GATConv(dim_in + dim_t, dim_out // 4, 4, feat_drop=dropout, attn_drop=dropout, residual=False)
                 # conv_dict['r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
                 # conv_dict['-r' + str(r)] = dglnn.GraphConv(dim_in + dim_t, dim_out)
                 # conv_dict['self'] = dglnn.GraphConv(dim_in + dim_t, dim_out)
-            mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict,aggregate='mean')
+            mods['conv' + str(l)] = dglnn.HeteroGraphConv(conv_dict, aggregate='mean')
             mods['act' + str(l)] = nn.ReLU()
             dim_in = dim_out
         self.mods = nn.ModuleDict(mods)
@@ -270,7 +272,7 @@ class FixStepModel(torch.nn.Module):
 
     def __init__(self, emb_conf, gen_conf, train_conf, g, nume, numr, step, s_dist=None, o_dist=None):
         super(FixStepModel, self).__init__()
-        self.copy = gen_conf['copy']
+        # self.copy = gen_conf['copy']
         self.emb_dim = emb_conf['dim']
         self.gen_dim = [int(d) for d in gen_conf['dim'].split('-')]
         self.gen_arch = gen_conf['arch'].split('-')
@@ -291,9 +293,10 @@ class FixStepModel(torch.nn.Module):
             self.time_emb = True
             self.time_emb_vec = torch.nn.Parameter(torch.Tensor(1, gen_conf['dim_t']))
             torch.nn.init.xavier_uniform_(self.time_emb_vec, gain=torch.nn.init.calculate_gain('relu'))
-        mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'], granularity=emb_conf['granularity'])
-        if self.copy > 0:
-            mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, numr, dropout=train_conf['dropout'])
+        r_limit = None if not 'r_limit' in emb_conf else emb_conf['r_limit']
+        mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'], granularity=emb_conf['granularity'], r_limit=r_limit)
+        # if self.copy > 0:
+        mods['copy'] = Copy(self.emb_dim, gen_conf['dim_r'], nume, numr, dropout=train_conf['dropout'])
         mods['subject_relation_emb'] = nn.Embedding(numr, gen_conf['dim_r'])
         mods['object_relation_emb'] = nn.Embedding(numr, gen_conf['dim_r'])
         in_dim = emb_conf['dim'] * self.gen_hist.shape[0]
@@ -347,10 +350,10 @@ class FixStepModel(torch.nn.Module):
         tss = time.time()
         copy_sub_predict = None
         copy_obj_predict = None
-        if self.copy > 0:
-            copy_hid = hid[:, -self.emb_dim:]
-            # only propagate gradients within the copy module
-            copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[:sub.shape[0]].detach(), copy_hid[sub.shape[0]:].detach(), rel, copy_mask)
+        # if self.copy > 0:
+        copy_hid = hid[:, -self.emb_dim:]
+        # only propagate gradients within the copy module
+        copy_sub_predict, copy_obj_predict = self.mods['copy'](copy_hid[:sub.shape[0]].detach(), copy_hid[sub.shape[0]:].detach(), rel, copy_mask)
         # if self._deb > 100:
         #     _emb=hid
         #     import pdb; pdb.set_trace()
