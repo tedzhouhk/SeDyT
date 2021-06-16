@@ -66,10 +66,11 @@ class Events:
         with open('data_raw/' + dataset + '/test.txt', 'r') as f:
             for l in f:
                 update_count(int(l.split()[0]),int(l.split()[1]),int(l.split()[2]))
-                if int(l.split()[3]) // time_stamp > curr_ts:
-                    self.test_events.append(events)
-                    events = list()
-                    curr_ts += 1
+                if dataset != 'ICEWS14':
+                    if int(l.split()[3]) // time_stamp > curr_ts:
+                        self.test_events.append(events)
+                        events = list()
+                        curr_ts += 1
                 events.append([int(l.split()[0]), int(l.split()[1]), int(l.split()[2]), curr_ts])
             self.test_events.append(events)
             events = list()

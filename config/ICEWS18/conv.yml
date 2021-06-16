@@ -13,15 +13,21 @@ gen-net:
     dim: '990-1024-2048'
     att_head: '0-0-0'
     history: '31 23 15 7 3 1 0'
-    # arch: 'dense-dense-dense'
-    # dim: '1024-1024-2048'
-    # att_head: '0-0-0'
-    # history: '31 23 15 7 3 1 0'
 train:
-  - fwd: 119
+  - fwd: 110
     epoch: 100
     batch_size: 1024
     lr: 0.0002
     dropout: 0.4
     weight_decay: 0.00001
     norm_loss: True
+
+# run1:
+# raw MRR:      0.1867 hit3: 0.2076 hit10: 0.3478
+# filtered MRR: 0.4596 hit3: 0.4588 hit10: 0.4969
+# run2:
+# raw MRR:      0.1816 hit3: 0.2023 hit10: 0.3413
+# filtered MRR: 0.4582 hit3: 0.4579 hit10: 0.4937
+# run3:
+# raw MRR:      0.1834 hit3: 0.2045 hit10: 0.3440
+# filtered MRR: 0.4595 hit3: 0.4592 hit10: 0.4956

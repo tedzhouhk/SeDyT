@@ -13,10 +13,6 @@ gen-net:
     dim: '990-1024-2048'
     att_head: '0-0-0'
     history: '31 23 15 7 3 1 0'
-    # arch: 'dense-dense-dense'
-    # dim: '1024-1024-2048'
-    # att_head: '0-0-0'
-    # history: '31 23 15 7 3 1 0'
 train:
   - fwd: 119
     epoch: 100
@@ -25,3 +21,13 @@ train:
     dropout: 0.4
     weight_decay: 0.00001
     norm_loss: True
+
+# run1:
+# raw MRR:      0.1992 hit3: 0.2170 hit10: 0.3605
+# filtered MRR: 0.5277 hit3: 0.5292 hit10: 0.5745
+# run2:
+# raw MRR:      0.1992 hit3: 0.2172 hit10: 0.3604
+# filtered MRR: 0.5267 hit3: 0.5280 hit10: 0.5740
+# run3:
+# raw MRR:      0.1987 hit3: 0.2177 hit10: 0.3608
+# filtered MRR: 0.5273 hit3: 0.5285 hit10: 0.5743

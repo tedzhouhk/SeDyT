@@ -1,0 +1,11 @@
+RE-Net/*
+data/*
+data_raw_process_bk/*
+*.pyc
+run.sh
+*.out
+models/*
+*.png
+runs/*
+data_raw/GDELT/*
+*.pkl

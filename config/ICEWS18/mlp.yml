@@ -1,0 +1,32 @@
+emb-net:
+  - dim: 200
+    dim_e: 200
+    dim_t: 100
+    history: 1
+    layer: 1
+    sample: '-1'
+    granularity: 5
+    r_limit: 10
+gen-net:
+  - dim_r: 200
+    arch: 'dense-dense-dense'
+    dim: '1024-1024-2048'
+    att_head: '0-0-0'
+    history: '31 23 15 7 3 1 0'
+train:
+  - fwd: 110
+    epoch: 100
+    batch_size: 1024
+    lr: 0.0002
+    dropout: 0.4
+    weight_decay: 0.00001
+    norm_loss: True
+# run1:
+# raw MRR:      0.1806 hit3: 0.2011 hit10: 0.3434
+# filtered MRR: 0.4597 hit3: 0.4595 hit10: 0.4969
+# run2:
+# raw MRR:      0.1809 hit3: 0.2020 hit10: 0.3435
+# filtered MRR: 0.4607 hit3: 0.4607 hit10: 0.4985
+# run3:
+# raw MRR:      0.1781 hit3: 0.1986 hit10: 0.3406
+# filtered MRR: 0.4598 hit3: 0.4592 hit10: 0.4967

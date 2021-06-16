@@ -1,0 +1,37 @@
+emb-net:
+  - dim: 200
+    dim_e: 200
+    dim_t: 100
+    history: 1
+    layer: 1
+    sample: '-1'
+    r_limit: 10
+gen-net:
+  - dim_r: 200
+    arch: 'lstm-dense-dense'
+    dim: '1024-1024-2048'
+    att_head: '0-0-0'
+    history: '31 23 15 7 3 1 0'
+    copy: 0.99
+train:
+  - fwd: 140
+    epoch: 100
+    batch_size: 1024
+    lr: 0.0005
+    dropout: 0.4
+    weight_decay: 0.00001
+
+# run1:
+        # raw MRR:      0.3102 hit3: 0.3390 hit10: 0.4104
+        # filtered MRR: 0.5252 hit3: 0.5260 hit10: 0.5336
+# run2:
+        # raw MRR:      0.3090 hit3: 0.3383 hit10: 0.4107
+        # filtered MRR: 0.5240 hit3: 0.5243 hit10: 0.5338
+# run3:
+        # raw MRR:      0.3099 hit3: 0.3390 hit10: 0.4114
+        # filtered MRR: 0.5247 hit3: 0.5249 hit10: 0.5346
+
+# train+val:
+        # raw MRR:      0.3817 hit3: 0.4299 hit10: 0.5400
+        # filtered MRR: 0.6895 hit3: 0.6891 hit10: 0.6928
+  

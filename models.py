@@ -291,7 +291,7 @@ class FixStepModel(torch.nn.Module):
         self.time_emb = False
         if 'dim_t' in gen_conf:
             self.time_emb = True
-            self.time_emb_vec = torch.nn.Parameter(torch.Tensor(1, gen_conf['dim_t']))
+            self.time_emb_vec = torch.nn.Parameter(torch.Tensor(1, gen_conf['dim_t']), requires_grad=False)
             torch.nn.init.xavier_uniform_(self.time_emb_vec, gain=torch.nn.init.calculate_gain('relu'))
         r_limit = None if not 'r_limit' in emb_conf else emb_conf['r_limit']
         mods['emb'] = EmbModule(emb_conf['dim_e'], emb_conf['dim'], emb_conf['dim_t'], numr, nume, g, train_conf['dropout'], emb_conf['layer'], sampling=emb_conf['sample'], granularity=emb_conf['granularity'], r_limit=r_limit)

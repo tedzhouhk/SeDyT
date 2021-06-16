@@ -58,7 +58,7 @@ for sweep_value in sweep_range:
     if 'r_limit' in emb_conf:
         data.set_r_limit(emb_conf['r_limit'])
     graph_f = 'data/' + args.data + '/' + str(emb_conf['history']) + '_' + str(emb_conf['granularity']) + '_' + str(data.r_limit) + '.bin'
-    if os.path.isfile(graph_f) and args.force_step == 0:
+    if os.path.isfile(graph_f):
         print('Loading graph...', end='', flush=True)
         with open(graph_f, 'rb') as gf:
             g = pickle.load(gf)
@@ -104,7 +104,9 @@ for sweep_value in sweep_range:
                 # training
                 train_loss = 0
                 train_rank_unf = list()
-                for ts in range(train_conf['fwd'] + max_history + max_step, data.ts_train):
+                train_ts = list(range(train_conf['fwd'] + max_history + max_step, data.ts_train))
+                random.shuffle(train_ts)
+                for ts in train_ts:
                     batches = data.get_batches(ts, train_conf['batch_size'], require_mask=False, copy_mask_ts=max_step)
                     for b in range(len(batches[0])):
                         ls, rank_unf, _ = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=None, copy_mask=batches[4][b], train=True)
@@ -112,46 +114,42 @@ for sweep_value in sweep_range:
                             train_loss += ls
                             train_rank_unf.append(rank_unf)
                     pbar.update(1)
-                train_rank_unf = torch.cat(train_rank_unf)
                 get_writer().add_scalar('train_loss', train_loss, get_global_step('train_loss'))
                 
-                if args.data != 'ICEWS14':
-                    # validation
-                    valid_loss = 0
-                    total_rank_unf = list()
-                    total_rank_fil = list()
-                    with torch.no_grad():
-                        for ts in range(data.ts_train, data.ts_train + data.ts_val):
-                            rank_unf_e = list()
-                            rank_fil_e = list()
-                            batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
-                            for b in range(len(batches[0])):
-                                loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
-                                valid_loss += loss
-                                rank_unf_e.append(rank_unf)
-                                rank_fil_e.append(rank_fil)
-                            rank_unf_e = torch.cat(rank_unf_e)
-                            rank_fil_e = torch.cat(rank_fil_e)
-                            total_rank_unf.append(rank_unf_e)
-                            total_rank_fil.append(rank_fil_e)
-                            total_rank_unf.append(rank_unf)
-                            total_rank_fil.append(rank_fil)
-                            pbar.update(1)
-                        total_rank_unf = torch.cat(total_rank_unf)
-                        total_rank_fil = torch.cat(total_rank_fil)
-                    get_writer().add_scalar('valid_loss', valid_loss, get_global_step('valid_loss'))
-                    get_writer().add_scalar('valid_raw_MRR', mrr(total_rank_unf), get_global_step('valid_raw_MRR'))
-                    get_writer().add_scalar('valid_fil_MRR', mrr(total_rank_fil), get_global_step('valid_fil_MRR'))
+                # validation
+                valid_loss = 0
+                total_rank_unf = list()
+                total_rank_fil = list()
+                with torch.no_grad():
+                    for ts in range(data.ts_train, data.ts_train + data.ts_val):
+                        rank_unf_e = list()
+                        rank_fil_e = list()
+                        batches = data.get_batches(ts, train_conf['batch_size'], require_mask=True, copy_mask_ts=max_step)
+                        for b in range(len(batches[0])):
+                            loss, rank_unf, rank_fil = model.step(batches[0][b], batches[1][b], batches[2][b], ts, filter_mask=batches[3][b], copy_mask=batches[4][b], train=False)
+                            valid_loss += loss
+                            rank_unf_e.append(rank_unf)
+                            rank_fil_e.append(rank_fil)
+                        rank_unf_e = torch.cat(rank_unf_e)
+                        rank_fil_e = torch.cat(rank_fil_e)
+                        total_rank_unf.append(rank_unf_e)
+                        total_rank_fil.append(rank_fil_e)
+                        total_rank_unf.append(rank_unf)
+                        total_rank_fil.append(rank_fil)
+                        pbar.update(1)
+                    total_rank_unf = torch.cat(total_rank_unf)
+                    total_rank_fil = torch.cat(total_rank_fil)
+                train_rank_unf = torch.cat(train_rank_unf)
+            get_writer().add_scalar('valid_loss', valid_loss, get_global_step('valid_loss'))
             get_writer().add_scalar('train_raw_MRR', mrr(train_rank_unf), get_global_step('train_raw_MRR'))
+            get_writer().add_scalar('valid_raw_MRR', mrr(total_rank_unf), get_global_step('valid_raw_MRR'))
+            get_writer().add_scalar('valid_fil_MRR', mrr(total_rank_fil), get_global_step('valid_fil_MRR'))
             print('\ttrain raw MRR:      {:.4f}'.format(mrr(train_rank_unf)))
-            if args.data != 'ICEWS14':
-                print('\tvalid raw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
-                print('\tvalid filtered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
-                if mrr(total_rank_fil) > max_mrr:
-                    max_mrr = mrr(total_rank_fil)
-                    max_e = e
-                    torch.save(model.state_dict(), save_path)
-            else:
+            print('\tvalid raw MRR:      {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_unf), hit3(total_rank_unf), hit10(total_rank_unf)))
+            print('\tvalid filtered MRR: {:.4f} hit3: {:.4f} hit10: {:.4f}'.format(mrr(total_rank_fil), hit3(total_rank_fil), hit10(total_rank_fil)))
+            if mrr(total_rank_fil) > max_mrr:
+                max_mrr = mrr(total_rank_fil)
+                max_e = e
                 torch.save(model.state_dict(), save_path)
 
             if len(sweep_range) == 1:

@@ -1,0 +1,23 @@
+emb-net:
+  - dim: 200
+    dim_e: 200
+    dim_t: 100
+    history: 5
+    layer: 1
+    sample: '-1'
+    granularity: 3
+gen-net:
+  - dim_r: 200
+    arch: 'dense-dense-dense'
+    dim: '1024-1024-2048'
+    att_head: '0-0-0'
+    history: '0'
+    # dim_t: 100
+train:
+  - fwd: 110
+    epoch: 100
+    batch_size: 1024
+    lr: 0.0002
+    dropout: 0.2
+    weight_decay: 0.00001
+    norm_loss: True

@@ -28,3 +28,7 @@ train:
 # run3:
 #   raw: MRR 0.4584 hit3: 0.5111 hit10: 0.6155
 #   fil: MRR 0.6585 hit3: 0.6622 hit10: 0.6813
+
+# train+val:
+# raw MRR:      0.5353 hit3: 0.5971 hit10: 0.7652
+# filtered MRR: 0.8447 hit3: 0.8441 hit10: 0.8473
